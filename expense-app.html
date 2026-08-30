@@ -2282,17 +2282,12 @@ verifyLedger(function(){ updateSyncBadge(); });
   }catch(e){}
 })();
 
-// cinematic splash → reveal
+// splash → reveal immediately, no artificial wait
 (function(){
   var splash=document.getElementById('splash');
   var app=document.getElementById('app');
-  var reduce = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-  if(reduce){ if(splash) splash.style.display='none'; if(app) app.classList.add('reveal'); return; }
-  setTimeout(function(){
-    if(app) app.classList.add('reveal');   // zoom-in
-    if(splash) splash.classList.add('hide'); // fade+scale out
-    setTimeout(function(){ if(splash) splash.style.display='none'; }, 750);
-  }, 1100); // splash shows ~1.1s
+  if(app) app.classList.add('reveal');
+  if(splash){ splash.classList.add('hide'); setTimeout(function(){ splash.style.display='none'; }, 400); }
 })();
 
 /* ============ AI ASK (JSONP) ============ */
@@ -3333,18 +3328,17 @@ let toastT;
 function toast(msg){ const t=document.getElementById('toast'); t.textContent=msg; t.classList.add('show');
   clearTimeout(toastT); toastT=setTimeout(()=>t.classList.remove('show'),3200); }
 
-/* === WELCOME SCREEN (loading bar auto-dismiss) === */
+/* === WELCOME SCREEN — dismisses immediately, no artificial wait === */
 function dismissWelcome(){
   var ls=document.getElementById('lockScreen');
+  if(!ls) return;
   ls.classList.add('hide');
-  setTimeout(function(){ls.style.display='none';},600);
+  setTimeout(function(){ls.style.display='none';},400);
 }
 (function startWelcomeBar(){
-  setTimeout(function(){
-    var fill=document.getElementById('lockLoadFill');
-    if(fill) fill.style.width='100%';
-  }, 600);
-  setTimeout(function(){ dismissWelcome(); }, 2800);
+  var fill=document.getElementById('lockLoadFill');
+  if(fill) fill.style.width='100%';
+  dismissWelcome();
 })();
 
 /* === UNDERWATER BUBBLES === */
@@ -5077,20 +5071,23 @@ function ldbDelete(row, eid){
 </script>
 
 <script>
-/* ═══ Service worker cleanup ═══
+/* ═══ Service worker removed for good ═══
    An earlier version of this app registered a service worker for
-   offline opening. On some phones it ended up serving a stuck, stale
-   copy of the page instead — not worth the risk for a finance app.
-   sw.js is now just a silent cleanup script: it clears its cache and
-   unregisters itself in the background, WITHOUT reloading the page
-   (an earlier attempt that force-reloaded caused an infinite
-   reload loop on some phones — this one never touches the page
-   itself). Registering it here is what makes the browser pick up
-   that cleanup script at all. */
-if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
-  window.addEventListener('load', function(){
-    navigator.serviceWorker.register('sw.js').catch(function(){});
-  });
+   offline opening. It caused more harm than good on some phones
+   (stuck loads, then a reload loop), so it's gone completely now —
+   this app no longer registers one at all, and this actively
+   unregisters and wipes any old one still sitting on a device from
+   before, directly and immediately, with no dependency on browser
+   update-check timing. */
+if('serviceWorker' in navigator){
+  navigator.serviceWorker.getRegistrations().then(function(regs){
+    regs.forEach(function(r){ r.unregister(); });
+  }).catch(function(){});
+  if(window.caches){
+    caches.keys().then(function(keys){
+      keys.forEach(function(k){ if(k.indexOf('financejoe') === 0) caches.delete(k); });
+    }).catch(function(){});
+  }
 }
 </script>
 
