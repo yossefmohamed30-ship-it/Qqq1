@@ -5078,13 +5078,15 @@ function ldbDelete(row, eid){
 
 <script>
 /* ═══ Service worker cleanup ═══
-   An earlier version of this app registered a service worker to
-   enable offline opening. On some phones it ended up serving a
-   stuck, stale copy of the page instead — not worth the risk for a
-   finance app, so this now just makes sure it's gone. sw.js itself
-   is a one-time "kill switch": it wipes its own cache, unregisters
-   itself, and reloads the page, then never runs again. This call is
-   what triggers the browser to fetch that fresh sw.js and run it. */
+   An earlier version of this app registered a service worker for
+   offline opening. On some phones it ended up serving a stuck, stale
+   copy of the page instead — not worth the risk for a finance app.
+   sw.js is now just a silent cleanup script: it clears its cache and
+   unregisters itself in the background, WITHOUT reloading the page
+   (an earlier attempt that force-reloaded caused an infinite
+   reload loop on some phones — this one never touches the page
+   itself). Registering it here is what makes the browser pick up
+   that cleanup script at all. */
 if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   window.addEventListener('load', function(){
     navigator.serviceWorker.register('sw.js').catch(function(){});
