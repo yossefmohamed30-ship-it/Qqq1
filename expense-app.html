@@ -1625,6 +1625,25 @@ body.day .burger-btn{background:rgba(255,255,255,.7);}
 <div class="toast" id="toast"></div>
 
 <script>
+/* ═══ شبكة أمان: الأبلكيشن مايفضلش معلق ورا شاشة الترحيب أبدًا ═══
+   السطور دي أول حاجة بتتنفذ في الصفحة، قبل أي كود تاني ممكن يقع.
+   لو أي خطأ حصل في أي حتة تانية ومنع شاشة الترحيب إنها تختفي
+   بالطريقة العادية، التايمر ده بيقفلها بالقوة بعد ٦ ثواني على أي حال. */
+(function(){
+  function unstick(){
+    try{
+      var ls = document.getElementById('lockScreen');
+      var sp = document.getElementById('splash');
+      var app = document.getElementById('app');
+      if(ls) ls.style.display = 'none';
+      if(sp) sp.style.display = 'none';
+      if(app) app.classList.add('reveal');
+    }catch(e){}
+  }
+  setTimeout(unstick, 6000);
+})();
+</script>
+<script>
 /* أي غلطة وقت التحميل بتتمسك هنا، عشان تبان بدل ما تفضل مستخبية */
 window.__ERRS = [];
 window.addEventListener('error', function(e){
