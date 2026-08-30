@@ -5077,12 +5077,14 @@ function ldbDelete(row, eid){
 </script>
 
 <script>
-/* ═══ PWA install support ═══
-   Only registers when actually served over http/https (a service
-   worker cannot register under file:// at all, so this silently
-   no-ops when the file is just double-clicked locally). It caches
-   nothing but this app's own shell files — Firebase and Apps
-   Script calls are untouched, see sw.js. */
+/* ═══ Service worker cleanup ═══
+   An earlier version of this app registered a service worker to
+   enable offline opening. On some phones it ended up serving a
+   stuck, stale copy of the page instead — not worth the risk for a
+   finance app, so this now just makes sure it's gone. sw.js itself
+   is a one-time "kill switch": it wipes its own cache, unregisters
+   itself, and reloads the page, then never runs again. This call is
+   what triggers the browser to fetch that fresh sw.js and run it. */
 if('serviceWorker' in navigator && /^https?:$/.test(location.protocol)){
   window.addEventListener('load', function(){
     navigator.serviceWorker.register('sw.js').catch(function(){});
