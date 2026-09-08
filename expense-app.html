@@ -1999,8 +1999,9 @@ const ACCOUNTS = ["Qnb","Insta","Cash","VF","Visa-Misr","Visa-Misr 2","Siwar","S
    والـ Apps Script بيوصّله لتاب Alma-vera. */
 const SHEET_LABEL = {Cash:"Cash", Siwar:"Siwar", Saraya:"Alma-vera", Dollar:"Dollar"};
 function shLabel(s){ return SHEET_LABEL[s] || s; }
-const SARAYA_TYPES = ["owner","Opex","income"];
-const SARAYA_APTS  = ["stone/Private pool"];
+const SARAYA_TYPES = ["owner","Opex","Admin","income"];
+const SARAYA_APTS  = ["stone/Private pool","Alma viola"];
+const SARAYA_PAID_BY = ["Alma","Me"]; // Admin-only: who actually paid — Alma unless picked otherwise
 
 /* ===== SIWAR (company) ===== */
 const DOLLAR_PAYERS = ["Binance","Redotpay","Kast","Dollar cash","Phantom","Qnb dollar"];
@@ -2677,18 +2678,28 @@ function renderVoiceFields(){
         + '</div></div>';
     }
     if(vEntry.sheet==="Saraya"){
-      // Type chips (owner / Opex / income) → column F
+      // Type chips (owner / Opex / Admin / income) → column F
       html += '<div class="m-field"><label>Type</label><div class="chip-grid">';
       SARAYA_TYPES.forEach(function(t){
         html += '<button class="acc-chip'+(vEntry.sarayaType===t?' on':'')+'" onclick="vSet(\'sarayaType\',\''+t+'\')">'+t+'</button>';
       });
       html += '</div></div>';
-      // Apt chips → column G
-      html += '<div class="m-field"><label>Apt</label><div class="chip-grid">';
-      SARAYA_APTS.forEach(function(a){
-        html += '<button class="acc-chip'+(vEntry.sarayaApt===a?' on':'')+'" onclick="vSet(\'sarayaApt\',\''+a+'\')">'+a+'</button>';
-      });
-      html += '</div></div>';
+      if(vEntry.sarayaType==="Admin"){
+        // Admin expenses aren't per-apartment — instead ask who actually paid.
+        // Alma unless the user explicitly picks otherwise.
+        html += '<div class="m-field"><label>Paid by</label><div class="chip-grid">';
+        SARAYA_PAID_BY.forEach(function(w){
+          html += '<button class="acc-chip'+((vEntry.paidBy||"Alma")===w?' on':'')+'" onclick="vSet(\'paidBy\',\''+w+'\')">'+w+'</button>';
+        });
+        html += '</div></div>';
+      } else {
+        // Apt chips → column G
+        html += '<div class="m-field"><label>Apt</label><div class="chip-grid">';
+        SARAYA_APTS.forEach(function(a){
+          html += '<button class="acc-chip'+(vEntry.sarayaApt===a?' on':'')+'" onclick="vSet(\'sarayaApt\',\''+a+'\')">'+a+'</button>';
+        });
+        html += '</div></div>';
+      }
     }
     if(vEntry.sheet==="Siwar"){
       // Apt dropdown → column F (personal) + column E (company)
@@ -2942,6 +2953,7 @@ function saveVoice(){
     dollarPayer: vEntry.sheet==="Dollar"?(vEntry.dollarPayer||""):"",
     sarayaType: vEntry.sheet==="Saraya"?(vEntry.sarayaType||"owner"):"",
     sarayaApt:  vEntry.sheet==="Saraya"?(vEntry.sarayaApt||"stone/Private pool"):"",
+    paidBy: (vEntry.sheet==="Saraya" && vEntry.sarayaType==="Admin")?(vEntry.paidBy||"Alma"):"",
     apt: vEntry.sheet==="Siwar"?(vEntry.apt||""):"",
     photo: vEntry.photo||""
   };
