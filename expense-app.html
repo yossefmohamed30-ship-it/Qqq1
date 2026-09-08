@@ -969,6 +969,8 @@ body.custom-numbers .hero-val,body.custom-numbers .hero-val.neg,body.custom-numb
 .acc-chip{padding:8px 13px;border-radius:10px;border:1px solid var(--line);background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;cursor:pointer;transition:all .2s cubic-bezier(.2,.8,.3,1);}
 .acc-chip:active{transform:scale(.92);}
 .acc-chip.on{background:rgba(143,184,240,.1);border-color:rgba(143,184,240,.45);color:var(--blue);animation:tabpop .25s cubic-bezier(.2,1.4,.4,1);}
+.loan-chip{border-color:rgba(255,216,107,.4);color:var(--yellow);}
+.loan-chip.on{background:rgba(255,216,107,.12);border-color:rgba(255,216,107,.55);color:var(--yellow);}
 .desc-wrap{position:relative;}
 .desc-wrap input{padding-right:46px !important;}
 .desc-mic{position:absolute;right:8px;top:50%;transform:translateY(-50%);width:30px;height:30px;border:none;border-radius:9px;background:var(--card2);color:var(--muted);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:.2s;}
@@ -1569,6 +1571,20 @@ body.day .burger-btn{background:rgba(255,255,255,.7);}
     <div class="modal-actions">
       <button class="m-del" onclick="cancelVoiceCard()">Cancel</button>
       <button class="m-save" onclick="saveVoice()">Save</button>
+    </div>
+  </div>
+</div>
+
+<div id="loanPersonModal" class="modal-overlay" style="z-index:200" onclick="if(event.target===this)closeLoanPersonPicker()">
+  <div class="modal">
+    <div class="modal-head">Who's this loan with?</div>
+    <div class="m-field">
+      <input class="field" id="loanPersonSearch" placeholder="Search a name, or type a new one…" autocomplete="off" oninput="onLoanPersonSearch()">
+    </div>
+    <button class="m-save" id="loanPersonAddBtn" style="display:none;margin-bottom:12px" onclick="pickLoanPerson(document.getElementById('loanPersonSearch').value)">+ Add as a new person</button>
+    <div id="loanPersonBody" style="max-height:44vh;overflow-y:auto"></div>
+    <div class="modal-actions">
+      <button class="m-del" onclick="closeLoanPersonPicker()">Cancel</button>
     </div>
   </div>
 </div>
@@ -2420,6 +2436,7 @@ function openVoiceModal(p, heard, remaining){
     dollarType: p.dollarType||"",
     apt: p.apt||"",
     photo: "",
+    loanPerson: p.loanPerson||"",
     _typeTouched: false
   };
   var head = document.querySelector('#voiceModal .modal-head');
@@ -2433,6 +2450,81 @@ function openVoiceModal(p, heard, remaining){
   document.getElementById('voiceModal').classList.add('active');
 }
 function closeVoiceModal(){ document.getElementById('voiceModal').classList.remove('active'); }
+
+/* ===== LOAN PERSON PICKER — a real, pickable account per person =====
+   Reused across the Cash "account" chips and the Dollar "payer" chips.
+   Whoever gets picked/created becomes the entry's description verbatim
+   (loansSummary_ on the backend groups by that exact text), so once one
+   is chosen the description field locks — that's what keeps one
+   person's loan history from splitting into look-alike duplicates. */
+var loanPersonPickerFor = null; // 'account' (Cash) or 'dollarPayer' (Dollar)
+var LOAN_PEOPLE_CACHE = null;
+
+function loanPeopleNames_(cb){
+  if(LOAN_PEOPLE_CACHE){ cb(LOAN_PEOPLE_CACHE); return; }
+  jsonpCall({action:'loans'}, function(res){
+    var names = (res && res.status==='ok' && res.people)
+      ? res.people.map(function(p){ return p.name; }).filter(Boolean)
+      : [];
+    LOAN_PEOPLE_CACHE = names;
+    cb(names);
+  }, function(){ cb([]); });
+}
+
+function openLoanPersonPicker(context){
+  loanPersonPickerFor = context;
+  var search = document.getElementById('loanPersonSearch');
+  search.value = '';
+  document.getElementById('loanPersonAddBtn').style.display = 'none';
+  document.getElementById('loanPersonModal').classList.add('active');
+  document.getElementById('loanPersonBody').innerHTML = '<div class="io-loading">Loading…</div>';
+  loanPeopleNames_(function(names){ renderLoanPersonList(names, ''); });
+  setTimeout(function(){ search.focus(); }, 150);
+}
+function closeLoanPersonPicker(){
+  document.getElementById('loanPersonModal').classList.remove('active');
+}
+function onLoanPersonSearch(){
+  var q = document.getElementById('loanPersonSearch').value;
+  loanPeopleNames_(function(names){ renderLoanPersonList(names, q); });
+}
+function renderLoanPersonList(names, filterQ){
+  var body = document.getElementById('loanPersonBody');
+  var addBtn = document.getElementById('loanPersonAddBtn');
+  var q = String(filterQ||'').trim();
+  var qNorm = q.toLowerCase();
+  var filtered = qNorm ? names.filter(function(n){ return n.toLowerCase().indexOf(qNorm)!==-1; }) : names;
+  var exact = names.some(function(n){ return n.toLowerCase()===qNorm; });
+  addBtn.style.display = (q && !exact) ? 'block' : 'none';
+  addBtn.textContent = '+ Add "'+q+'" as a new person';
+
+  if(!filtered.length){
+    body.innerHTML = q
+      ? '<div class="hist-empty">No match — tap "Add" above to start their account.</div>'
+      : '<div class="hist-empty">Nobody yet — type a name above to add the first one.</div>';
+    return;
+  }
+  body.innerHTML = filtered.map(function(n){
+    return '<div class="loan-row" onclick="pickLoanPerson('+JSON.stringify(n).replace(/"/g,'&quot;')+')">'
+      +   '<div class="loan-name">'+esc(n)+'</div><span class="arr">›</span>'
+      + '</div>';
+  }).join('');
+}
+function pickLoanPerson(name){
+  name = String(name||'').trim();
+  if(!name) return;
+  vEntry.loanPerson = name;
+  vEntry.description = name;
+  var loanWord = (vEntry.flow==='in') ? 'Repaid' : 'Loan';
+  if(vEntry.sheet==='Dollar'){
+    if(!vEntry.dollarType) vEntry.dollarType = loanWord;
+  } else if(!vEntry.expenseType){
+    vEntry.expenseType = loanWord;
+  }
+  LOAN_PEOPLE_CACHE = null; // a brand-new name should show up next time we open the list
+  closeLoanPersonPicker();
+  renderVoiceFields();
+}
 
 /* ===== IN/OUT DETAILS ===== */
 function openInOut(which){
@@ -2558,6 +2650,7 @@ function renderVoiceFields(){
     DOLLAR_PAYERS.forEach(function(p){
       html += '<button class="acc-chip'+(vEntry.dollarPayer===p?' on':'')+'" onclick="vSet(\'dollarPayer\',\''+p+'\')">'+p+'</button>';
     });
+    html += '<button class="acc-chip loan-chip'+(vEntry.loanPerson?' on':'')+'" onclick="openLoanPersonPicker(\'dollarPayer\')">🤝 '+(vEntry.loanPerson?esc(vEntry.loanPerson):'Loans')+'</button>';
     html += '</div></div>';
     html += '<div class="m-field"><label>Description</label><div class="desc-wrap"><input id="v-description" type="text" value="'+esc(vEntry.description)+'"><button type="button" class="desc-mic" id="descMic" onclick="dictateDesc()" title="Dictate">'+MIC_SVG+'</button></div></div>';
     html += selectField2('v-dollarType','Transfer type', DOLLAR_TYPES, vEntry.dollarType);
@@ -2567,8 +2660,13 @@ function renderVoiceFields(){
     ACCOUNTS.forEach(function(a){
       html += '<button class="acc-chip'+(vEntry.account===a?' on':'')+'" onclick="vSet(\'account\',\''+a+'\')">'+a+'</button>';
     });
+    if(vEntry.sheet==="Cash"){
+      html += '<button class="acc-chip loan-chip'+(vEntry.loanPerson?' on':'')+'" onclick="openLoanPersonPicker(\'account\')">🤝 '+(vEntry.loanPerson?esc(vEntry.loanPerson):'Loans')+'</button>';
+    }
     html += '</div></div>';
-    html += '<div class="m-field"><label>Description</label><div class="desc-wrap"><input id="v-description" type="text" value="'+esc(vEntry.description)+'"><button type="button" class="desc-mic" id="descMic" onclick="dictateDesc()" title="Dictate">'+MIC_SVG+'</button></div></div>';
+    var descReadonly = vEntry.loanPerson ? ' readonly' : '';
+    var descHint = vEntry.loanPerson ? '<div class="amt-hint">Locked to "'+esc(vEntry.loanPerson)+'" so their loan history stays in one place. Tap Loans above to pick someone else.</div>' : '';
+    html += '<div class="m-field"><label>Description</label><div class="desc-wrap"><input id="v-description" type="text" value="'+esc(vEntry.description)+'"'+descReadonly+'><button type="button" class="desc-mic" id="descMic" onclick="dictateDesc()" title="Dictate">'+MIC_SVG+'</button></div></div>'+descHint;
     if(vEntry.sheet==="Cash"){
       html += '<div class="m-field"><label>Expense type</label>'
         + '<div class="type-sel" id="typeSel">'+esc(vEntry.expenseType||"Choose type…")+' <span class="ts-arrow">▾</span></div>'
@@ -2816,8 +2914,12 @@ function predictType(desc, sheet){  var mem=(MEM[sheet]||{});
 function vSet(key,val){
   // read current text inputs before re-render so we don't lose edits
   var a=document.getElementById('v-amount'); if(a) vEntry.amount=a.value;
-  var d=document.getElementById('v-description'); if(d) vEntry.description=d.value;
+  var d=document.getElementById('v-description'); if(d && !d.readOnly) vEntry.description=d.value;
   vEntry[key]=val;
+  // switching sheet/flow clears the loan pick — the person list & Loan/Repaid
+  // wording depend on which sheet+direction we're in, so stale picks would
+  // silently mislabel the entry
+  if(key==="sheet" || key==="flow") vEntry.loanPerson="";
   renderVoiceFields();
 }
 
