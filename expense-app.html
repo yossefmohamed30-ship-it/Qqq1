@@ -2699,6 +2699,8 @@ function openVoiceModal(p, heard, remaining){
     xferUsd: p.xferUsd||"",
     xferRate: p.xferRate||"",
     xferLast: "",
+    genInvoice: (p.genInvoice!==false),
+    invName: p.invName||"",
     _fromSms: !!p._fromSms,
     _merchant: p._merchant||"",
     _merchChips: Array.isArray(p._merchChips) ? p._merchChips : [],
@@ -3007,6 +3009,14 @@ function renderVoiceFields(){
       html += '<div class="m-field"><label>Photo (optional)</label>'
         + '<input type="file" id="v-photo" accept="image/*" class="m-file">'
         + '<div id="photoStatus" class="photo-status"></div></div>';
+      // no paper invoice? generate one from the entry and upload it as the photo
+      html += '<div class="m-field">'
+        + '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">'
+        +   '<input type="checkbox" id="v-genInv"'+(vEntry.genInvoice!==false?' checked':'')+' style="width:18px;height:18px">'
+        +   '🧾 توليد فاتورة تلقائيًا (لو مفيش صورة)'
+        + '</label></div>';
+      html += '<div class="m-field"><label>السيد / (اختياري — للفاتورة المولّدة)</label>'
+        + '<input type="text" id="v-invName" value="'+esc(vEntry.invName||"")+'" placeholder="اسم المستفيد"></div>';
     }
   }
   f.innerHTML=html;
@@ -3029,6 +3039,11 @@ function renderVoiceFields(){
     var st0=document.getElementById('photoStatus');
     if(st0 && vEntry.photo){ st0.textContent="✓ Photo attached"; }
   }
+  // generate-invoice controls (Siwar)
+  var gi=document.getElementById('v-genInv');
+  if(gi) gi.onchange=function(){ vEntry.genInvoice=this.checked; };
+  var gin=document.getElementById('v-invName');
+  if(gin) gin.oninput=function(){ vEntry.invName=this.value; };
 
   // نصغّر الصورة قبل ما نبعتها — أسرع بكتير وبتفضل واضحة تمامًا
   function compressPhoto(file, cb){
@@ -3360,6 +3375,78 @@ function saveTransfer(){
   loadMemory();
 }
 
+/* draw a paper-style فاتورة for a Siwar expense that has no photo, so the
+   company sheet still gets an "invoice" image in its photo column */
+function buildSiwarInvoice(o){
+  var W = 820, H = 1000;
+  var c = document.createElement('canvas'); c.width = W; c.height = H;
+  var x = c.getContext('2d');
+  x.fillStyle = "#fbfaf7"; x.fillRect(0, 0, W, H);
+  x.strokeStyle = "#141414"; x.lineWidth = 2;
+  x.strokeRect(24, 24, W - 48, H - 48);
+  x.fillStyle = "#141414";
+  x.direction = "rtl"; x.textBaseline = "middle";
+
+  // title
+  x.textAlign = "center";
+  x.strokeRect(W/2 - 95, 46, 190, 58);
+  x.font = "bold 38px 'Segoe UI','Tahoma',Arial";
+  x.fillText("فاتورة", W/2, 76);
+
+  // date + payee
+  var d = new Date();
+  var ds = ("0"+d.getDate()).slice(-2) + " / " + ("0"+(d.getMonth()+1)).slice(-2) + " / " + d.getFullYear();
+  x.textAlign = "right";
+  x.font = "22px 'Segoe UI','Tahoma',Arial";
+  x.fillText("التاريخ : " + ds, W - 55, 150);
+  x.fillText("السيد / " + (o.name || "............................................"), W - 55, 192);
+
+  // table
+  var left = 55, right = W - 55, top = 235, rowH = 52, rows = 9;
+  var bottom = top + rowH * rows;
+  var cB = [right, right - 340, right - 460, right - 580, left];   // column boundaries (RTL)
+  var mid = [(cB[0]+cB[1])/2, (cB[1]+cB[2])/2, (cB[2]+cB[3])/2, (cB[3]+cB[4])/2];
+  var heads = ["الصنف", "فئة", "عدد", "جنيه"];
+
+  x.strokeRect(left, top, right - left, bottom - top);
+  x.beginPath();
+  x.moveTo(left, top + rowH); x.lineTo(right, top + rowH);          // header underline
+  [cB[1], cB[2], cB[3]].forEach(function(vx){ x.moveTo(vx, top); x.lineTo(vx, bottom); });
+  x.stroke();
+
+  x.textAlign = "center";
+  x.font = "bold 21px 'Segoe UI','Tahoma',Arial";
+  for(var i = 0; i < 4; i++) x.fillText(heads[i], mid[i], top + rowH/2);
+
+  // one line = the whole expense
+  var amt = (Math.round((o.amount||0) * 100) / 100).toLocaleString('en-US');
+  x.font = "22px 'Segoe UI','Tahoma',Arial";
+  var y = top + rowH + rowH/2;
+  x.fillText((o.desc || o.type || "مصروف"), mid[0], y);   // الصنف
+  x.fillText(amt, mid[1], y);                              // فئة (سعر الوحدة)
+  x.fillText("1", mid[2], y);                              // عدد
+  x.fillText(amt, mid[3], y);                              // جنيه (الإجمالي)
+  if(o.type){
+    x.font = "15px 'Segoe UI','Tahoma',Arial"; x.fillStyle = "#666";
+    x.fillText(o.type + (o.apt ? (" · " + o.apt) : ""), mid[0], y + 24);
+    x.fillStyle = "#141414";
+  }
+
+  // total
+  x.textAlign = "center";
+  x.font = "bold 24px 'Segoe UI','Tahoma',Arial";
+  x.fillText("الإجمالى", (left + right)/2 + 60, bottom + 42);
+  x.strokeRect(left, bottom + 16, 170, 50);
+  x.fillText(amt, left + 85, bottom + 41);
+  x.font = "bold 20px 'Segoe UI','Tahoma',Arial";
+  x.fillText("الإجمالى فقط لا غير", (left + right)/2, bottom + 100);
+
+  x.textAlign = "left"; x.font = "13px Arial"; x.fillStyle = "#9a9a9a";
+  x.fillText("auto-generated — no paper invoice  ·  " + ds, left, H - 42);
+
+  return c.toDataURL('image/jpeg', 0.85);
+}
+
 function saveVoice(){
   if(vEntry.sheet==="Transfer"){ saveTransfer(); return; }
   var a=document.getElementById('v-amount'); if(a) vEntry.amount=Math.abs(parseFloat(a.value)||0);
@@ -3367,7 +3454,26 @@ function saveVoice(){
   var dt=document.getElementById('v-dollarType'); if(dt) vEntry.dollarType=dt.value;
   var sa=document.getElementById('v-siwarApt'); if(sa) vEntry.apt=sa.value;
   var st=document.getElementById('v-siwarType'); if(st) vEntry.expenseType=st.value;
+  var gi=document.getElementById('v-genInv'); if(gi) vEntry.genInvoice=gi.checked;
+  var gin=document.getElementById('v-invName'); if(gin) vEntry.invName=gin.value;
   if(!vEntry.amount){ alert("Enter an amount."); return; }
+
+  // a Siwar expense must carry an invoice — a photo, or an auto-generated one
+  if(vEntry.sheet==="Siwar" && !vEntry.photo){
+    if(!vEntry.genInvoice){
+      alert("مصروف Siwar لازم فاتورة — ارفع صورة أو فعّل «توليد فاتورة».");
+      return;
+    }
+    try{
+      vEntry.photo = buildSiwarInvoice({
+        name: (vEntry.invName||"").trim(),
+        desc: (vEntry.description||"").trim(),
+        amount: vEntry.amount,
+        type: vEntry.expenseType||"",
+        apt: vEntry.apt||""
+      });
+    }catch(e){ alert("مش قادر أولّد الفاتورة — ارفع صورة."); return; }
+  }
 
   var signed = (vEntry.flow==="in") ? vEntry.amount : -vEntry.amount;
   var payload = {
