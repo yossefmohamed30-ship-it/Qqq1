@@ -961,10 +961,6 @@ input[type=range].set::-webkit-slider-thumb:active{transform:scale(1.15);}
 .color-def:active{transform:scale(.95);}
 body.custom-numbers .hero-val,body.custom-numbers .hero-val.neg,body.custom-numbers .balval,body.custom-numbers .balval.neg,body.custom-numbers .hs-v,body.custom-numbers .hval{color:var(--numcol) !important;}
 .seg{display:flex;gap:6px;}
-/* the Account-book selector holds 5 items now (…, ⇄ Transfer) — let it wrap
-   to a second row on narrow phones instead of clipping the labels */
-#vSeg-sheet{flex-wrap:wrap;}
-#vSeg-sheet .seg-b{min-width:60px;}
 .seg-b{flex:1;padding:10px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;transition:all .22s cubic-bezier(.2,.8,.3,1);}
 .seg-b:active{transform:scale(.95);}
 .seg-b.on{background:rgba(127,201,232,.1);border-color:rgba(127,201,232,.45);color:var(--green);animation:tabpop .3s cubic-bezier(.2,1.4,.4,1);}
@@ -2900,9 +2896,9 @@ function cancelVoiceCard(){
 function renderVoiceFields(){
   var f=document.getElementById('voiceFields');
   var html="";
-  // sheet selector
+  // sheet selector  (Transfer isn't here — it's reached from the side menu)
   html += '<div class="m-field"><label>Account book</label><div class="seg" id="vSeg-sheet">';
-  ["Cash","Siwar","Saraya","Dollar","Transfer"].forEach(function(s){
+  ["Cash","Siwar","Saraya","Dollar"].forEach(function(s){
     html += '<button class="seg-b'+(vEntry.sheet===s?' on':'')+'" onclick="vSet(\'sheet\',\''+s+'\')">'+shLabel(s)+'</button>';
   });
   html += '</div></div>';
