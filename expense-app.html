@@ -2284,31 +2284,52 @@ var SMS_USD_RATE_KEY = "jfin_usd_rate_v1";
 function smsUsdRate(){ var r = parseFloat(localStorage.getItem(SMS_USD_RATE_KEY)); return (r>0) ? r : 51; }
 function smsSetUsdRate(r){ try{ if(parseFloat(r)>0) localStorage.setItem(SMS_USD_RATE_KEY, String(parseFloat(r))); }catch(e){} }
 
-/* ── merchant memory: { "queen bakery": {cat, desc, n, amts:{"15":{cat,n}}} } ── */
+/* ── merchant memory ──────────────────────────────────────────────
+   The SMS gives the SHOP name; the description we save is what he
+   actually BOUGHT there. So the shop is only the memory key:
+     { "<shop>": {
+         n: <times seen>,
+         items: { "<norm item>": {label, cat, n, lastAmt} },  // for the chips
+         amt:   { "<amount>": "<norm item>" }                  // exact repeat
+     } }
+   ---------------------------------------------------------------- */
 var MERCH_KEY = "jfin_merch_v1";
 function merchGet(){ try{ return JSON.parse(localStorage.getItem(MERCH_KEY) || "{}") || {}; }catch(e){ return {}; } }
 function merchSet(m){ try{ localStorage.setItem(MERCH_KEY, JSON.stringify(m)); }catch(e){} }
 function merchNorm(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9؀-ۿ ]+/g," ").replace(/\s+/g," ").trim(); }
-function merchLookup(name, amount){
-  var m = merchGet(), k = merchNorm(name);
-  if(!k || !m[k]) return null;
-  var e = m[k], ak = String(Math.round(amount||0));
-  var cat = (e.amts && e.amts[ak] && e.amts[ak].cat) ? e.amts[ak].cat : (e.cat || "");
-  return { cat: cat, desc: e.desc || name, n: e.n || 0 };
+
+/* returns { desc, cat, chips:[{label,cat}] } — desc/cat empty unless this
+   exact (shop, amount) was entered before; chips = past items at this shop */
+function merchLook(name, amount){
+  var m = merchGet(), k = merchNorm(name), out = { desc:"", cat:"", chips:[] };
+  if(!k || !m[k]) return out;
+  var e = m[k], items = e.items || {}, ak = String(Math.round(amount||0));
+  var exactKey = e.amt && e.amt[ak];
+  if(exactKey && items[exactKey]){ out.desc = items[exactKey].label || ""; out.cat = items[exactKey].cat || ""; }
+  out.chips = Object.keys(items)
+    .map(function(ik){ return items[ik]; })
+    .sort(function(a,b){ return (b.n||0) - (a.n||0); })
+    .slice(0, 8)
+    .map(function(it){ return { label: it.label, cat: it.cat || "" }; });
+  return out;
 }
+
 function merchLearn(name, amount, cat, desc){
-  var k = merchNorm(name);
+  var k = merchNorm(name), ik = merchNorm(desc);
   if(!k) return;
   var m = merchGet();
-  var e = m[k] || { cat:"", desc:(desc||name), n:0, amts:{} };
-  if(cat)  e.cat  = cat;
-  if(desc) e.desc = desc;
+  var e = m[k] || { n:0, items:{}, amt:{} };
+  e.items = e.items || {}; e.amt = e.amt || {};
   e.n = (e.n || 0) + 1;
-  var ak = String(Math.round(amount||0));
-  e.amts = e.amts || {};
-  e.amts[ak] = e.amts[ak] || { cat:"", n:0 };
-  e.amts[ak].n++;
-  if(cat) e.amts[ak].cat = cat;
+  if(ik){
+    var it = e.items[ik] || { label: desc, cat:"", n:0 };
+    it.label = desc;
+    if(cat) it.cat = cat;
+    it.n = (it.n || 0) + 1;
+    it.lastAmt = Math.round(amount||0);
+    e.items[ik] = it;
+    e.amt[String(Math.round(amount||0))] = ik;   // this amount → this item, last wins
+  }
   m[k] = e; merchSet(m);
 }
 
@@ -2430,27 +2451,29 @@ function smsToQueue(raw){
     }
 
     var e = { sheet:"Cash", flow:flow, amount: amt, account:acct,
-              description:"", expenseType:"", _fromSms:true, _merchant:"" };
+              description:"", expenseType:"", _fromSms:true, _merchant:"", _merchChips:[], _usdNote:"" };
 
     if(cur === "USD"){
       var rate = smsUsdRate();
       e.amount = Math.round(amt * rate);
       e._usd = amt;
-      e._merchant = merchant;
-      e.description = (merchant || "شراء دولاري") + " ($" + amt + " × " + rate + ")";
-      var hitU = merchant ? merchLookup(merchant, e.amount) : null;
-      if(hitU && hitU.cat) e.expenseType = hitU.cat;
+      e._usdNote = "$" + amt + " × " + rate;
+      e._merchant = merchant || "";
+      var lookU = merchant ? merchLook(merchant, e.amount) : { desc:"", cat:"", chips:[] };
+      e.description = lookU.desc || "";
+      e.expenseType = lookU.cat || "";
+      e._merchChips = lookU.chips;
     } else if(kind === "pos"){
-      e._merchant = merchant;
-      e.description = merchant || "";
-      var hit = merchant ? merchLookup(merchant, amt) : null;
-      if(hit){ e.description = hit.desc || merchant; if(hit.cat) e.expenseType = hit.cat; }
+      e._merchant = merchant || "";
+      var look = merchant ? merchLook(merchant, amt) : { desc:"", cat:"", chips:[] };
+      // description = what you BOUGHT (learned per shop+price), NOT the shop name
+      e.description = look.desc || "";
+      e.expenseType = look.cat || "";
+      e._merchChips = look.chips;
     } else if(kind === "ipn" || kind === "wallet_in"){
-      if(incoming){
-        e.description = who && !/\*/.test(who) ? ("وارد من " + who) : "تحويل وارد";
-      } else {
-        e.description = who && !/\*/.test(who) ? who : "تحويل إنستاباي صادر";
-      }
+      // leave the note empty for you to type; keep only a useful "from <name>"
+      if(incoming && who && !/\*/.test(who)) e.description = "وارد من " + who;
+      else e.description = "";
     } else {
       e.description = "";
     }
@@ -2678,7 +2701,9 @@ function openVoiceModal(p, heard, remaining){
     xferLast: "",
     _fromSms: !!p._fromSms,
     _merchant: p._merchant||"",
+    _merchChips: Array.isArray(p._merchChips) ? p._merchChips : [],
     _usd: Number(p._usd)||0,
+    _usdNote: p._usdNote||"",
     _typeTouched: !!p.expenseType
   };
   var head = document.querySelector('#voiceModal .modal-head');
@@ -2914,7 +2939,20 @@ function renderVoiceFields(){
     html += '</div></div>';
     var descReadonly = vEntry.loanPerson ? ' readonly' : '';
     var descHint = vEntry.loanPerson ? '<div class="amt-hint">Locked to "'+esc(vEntry.loanPerson)+'" so their loan history stays in one place. Tap Loans above to pick someone else.</div>' : '';
-    html += '<div class="m-field"><label>Description</label><div class="desc-wrap"><input id="v-description" type="text" value="'+esc(vEntry.description)+'"'+descReadonly+'><button type="button" class="desc-mic" id="descMic" onclick="dictateDesc()" title="Dictate">'+MIC_SVG+'</button></div></div>'+descHint;
+    // bank-SMS purchase: the shop name is just a hint — pick a past item or type what you bought
+    var merchBar = "";
+    if(vEntry._fromSms && vEntry._merchant){
+      merchBar += '<div class="amt-hint">🛒 '+esc(vEntry._merchant)+(vEntry._usdNote?(' · '+esc(vEntry._usdNote)):'')+' — اكتب اشتريت إيه</div>';
+      var chips = vEntry._merchChips || [];
+      if(chips.length){
+        merchBar += '<div class="chip-grid" style="margin:6px 0 0">';
+        chips.forEach(function(it, i){
+          merchBar += '<button type="button" class="acc-chip'+(vEntry.description===it.label?' on':'')+'" onclick="vPickMerchItem('+i+')">'+esc(it.label)+'</button>';
+        });
+        merchBar += '</div>';
+      }
+    }
+    html += '<div class="m-field"><label>Description</label>'+merchBar+'<div class="desc-wrap"><input id="v-description" type="text" value="'+esc(vEntry.description)+'"'+descReadonly+'><button type="button" class="desc-mic" id="descMic" onclick="dictateDesc()" title="Dictate">'+MIC_SVG+'</button></div></div>'+descHint;
     if(vEntry.sheet==="Cash"){
       html += '<div class="m-field"><label>Expense type</label>'
         + '<div class="type-sel" id="typeSel">'+esc(vEntry.expenseType||"Choose type…")+' <span class="ts-arrow">▾</span></div>'
@@ -3147,6 +3185,15 @@ function dictateDesc(){
   descRecog.start();
 }
 
+/* tap a past item you've bought at this shop (bank-SMS entry) */
+function vPickMerchItem(i){
+  var it = (vEntry._merchChips || [])[i];
+  if(!it) return;
+  vEntry.description = it.label;
+  if(it.cat){ vEntry.expenseType = it.cat; vEntry._typeTouched = true; }
+  renderVoiceFields();
+}
+
 // Predict expenseType from past descriptions (fuzzy: shared words / contains)
 function predictType(desc, sheet){  var mem=(MEM[sheet]||{});
   var q=String(desc||"").trim().toLowerCase();
@@ -3340,9 +3387,9 @@ function saveVoice(){
 
   // INSTANT: save to Firebase and show success immediately
   saveToFirebase(payload);
-  // a bank-SMS entry teaches the merchant memory whatever category you kept
-  if(vEntry._fromSms && vEntry._merchant){
-    try{ merchLearn(vEntry._merchant, vEntry.amount, vEntry.expenseType || "", vEntry.description || ""); }catch(e){}
+  // a bank-SMS purchase teaches the shop memory: this price → this item + category
+  if(vEntry._fromSms && vEntry._merchant && (vEntry.description || "").trim()){
+    try{ merchLearn(vEntry._merchant, vEntry.amount, vEntry.expenseType || "", vEntry.description.trim()); }catch(e){}
   }
   closeVoiceModal();
   setVoiceStatus("✓ Saved: "+payload.sheet+" · "+(vEntry.flow==="in"?"+":"−")+vEntry.amount.toLocaleString()+(payload.description?(" · "+payload.description):""),"ok");
