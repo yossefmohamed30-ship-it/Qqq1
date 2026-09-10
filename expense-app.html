@@ -2691,6 +2691,7 @@ function openVoiceModal(p, heard, remaining){
     dollarType: p.dollarType||"",
     apt: p.apt||"",
     photo: "",
+    photos: [],
     loanPerson: p.loanPerson||"",
     xferDir: p.xferDir||"egp2usd",
     xferFrom: p.xferFrom||"",
@@ -3004,10 +3005,10 @@ function renderVoiceFields(){
         html += '<option value="'+esc(t)+'"'+(vEntry.expenseType===t?' selected':'')+'>'+esc(t)+'</option>';
       });
       html += '</select></div>';
-      // Photo (optional) → company sheet column G
-      html += '<div class="m-field"><label>Photo (optional)</label>'
-        + '<input type="file" id="v-photo" accept="image/*" class="m-file">'
-        + '<div id="photoStatus" class="photo-status"></div></div>';
+      // Photos (optional, multiple) → merged into one image → company sheet column G
+      html += '<div class="m-field"><label>Photos (optional — تقدر تختار أكتر من صورة)</label>'
+        + '<input type="file" id="v-photo" accept="image/*" multiple class="m-file">'
+        + '<div id="photoStatus" class="photo-status">'+((vEntry.photos&&vEntry.photos.length)?('✓ '+vEntry.photos.length+' صورة'):'')+'</div></div>';
       // no paper invoice? generate one from the entry and upload it as the photo
       html += '<div class="m-field">'
         + '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">'
@@ -3017,24 +3018,32 @@ function renderVoiceFields(){
     }
   }
   f.innerHTML=html;
-  // photo picker (Siwar) → compress then read as base64
+  // photo picker (Siwar) → compress each; multiple are merged into one image on save
   var ph=document.getElementById('v-photo');
   if(ph){
     ph.onchange=function(){
-      var file=this.files && this.files[0];
+      var files=this.files ? Array.prototype.slice.call(this.files) : [];
       var st=document.getElementById('photoStatus');
-      if(!file){ vEntry.photo=""; if(st) st.textContent=""; return; }
-      if(st) st.textContent="Reading photo…";
-      compressPhoto(file, function(dataUrl, err){
-        if(err || !dataUrl){ if(st) st.textContent="⚠️ Couldn't read photo"; return; }
-        vEntry.photo=dataUrl;
-        var kb=Math.round(dataUrl.length*0.75/1024);
-        if(st) st.textContent="✓ "+file.name+" ("+kb+" KB)";
+      if(!files.length){ return; }
+      vEntry.photos = vEntry.photos || [];
+      if(st) st.textContent="بيقرأ الصور…";
+      var done=0;
+      files.forEach(function(file){
+        compressPhoto(file, function(dataUrl, err){
+          if(!err && dataUrl) vEntry.photos.push(dataUrl);
+          if(++done===files.length){
+            if(st) st.textContent = vEntry.photos.length ? ("✓ "+vEntry.photos.length+" صورة") : "⚠️ مش قادر أقرأ الصور";
+            // real photos attached → no need to auto-generate an invoice
+            if(vEntry.photos.length){
+              vEntry.genInvoice=false;
+              var g=document.getElementById('v-genInv'); if(g) g.checked=false;
+            }
+          }
+        });
       });
     };
-    // if a photo was already attached before a re-render, show it as still attached
     var st0=document.getElementById('photoStatus');
-    if(st0 && vEntry.photo){ st0.textContent="✓ Photo attached"; }
+    if(st0 && vEntry.photos && vEntry.photos.length){ st0.textContent="✓ "+vEntry.photos.length+" صورة"; }
   }
   // generate-invoice toggle (Siwar)
   var gi=document.getElementById('v-genInv');
@@ -3443,6 +3452,41 @@ function buildSiwarInvoice(o){
   return c.toDataURL('image/jpeg', 0.85);
 }
 
+/* stack several images into one tall image → one Drive file, one cell */
+function compositeImages(urls, cb){
+  urls = (urls || []).filter(Boolean);
+  if(!urls.length){ cb(""); return; }
+  if(urls.length === 1){ cb(urls[0]); return; }
+  var imgs = new Array(urls.length), done = 0;
+  urls.forEach(function(u, i){
+    var im = new Image();
+    im.onload  = function(){ imgs[i] = im;   if(++done === urls.length) draw(); };
+    im.onerror = function(){ imgs[i] = null; if(++done === urls.length) draw(); };
+    im.src = u;
+  });
+  function draw(){
+    var W = 1000, pad = 14, gap = 16;
+    var parts = imgs.filter(Boolean).map(function(im){
+      var w = Math.min(W - pad*2, im.width || W);
+      return { im: im, w: w, h: (im.height || w) * (w / (im.width || w)) };
+    });
+    if(!parts.length){ cb(urls[0]); return; }
+    var totalH = pad*2 + parts.reduce(function(s,p){ return s + p.h + gap; }, 0) - gap;
+    var sc = totalH > 5200 ? 5200 / totalH : 1;            // keep the JPEG sane
+    var c = document.createElement('canvas');
+    c.width = Math.round(W * sc); c.height = Math.round(totalH * sc);
+    var x = c.getContext('2d');
+    x.fillStyle = "#ffffff"; x.fillRect(0, 0, c.width, c.height);
+    var y = pad * sc;
+    parts.forEach(function(p){
+      var w = p.w * sc, h = p.h * sc;
+      try{ x.drawImage(p.im, (c.width - w)/2, y, w, h); }catch(e){}
+      y += h + gap * sc;
+    });
+    try{ cb(c.toDataURL('image/jpeg', 0.72)); }catch(e){ cb(urls[0]); }
+  }
+}
+
 function saveVoice(){
   if(vEntry.sheet==="Transfer"){ saveTransfer(); return; }
   var a=document.getElementById('v-amount'); if(a) vEntry.amount=Math.abs(parseFloat(a.value)||0);
@@ -3453,48 +3497,59 @@ function saveVoice(){
   var gi=document.getElementById('v-genInv'); if(gi) vEntry.genInvoice=gi.checked;
   if(!vEntry.amount){ alert("Enter an amount."); return; }
 
-  // a Siwar expense must carry an invoice — a photo, or an auto-generated one
-  if(vEntry.sheet==="Siwar" && !vEntry.photo){
-    if(!vEntry.genInvoice){
+  // ── Siwar: assemble the invoice image(s) → one merged photo ──
+  if(vEntry.sheet==="Siwar"){
+    var imgs = (vEntry.photos || []).slice();
+    if(vEntry.genInvoice){
+      try{ imgs.push(buildSiwarInvoice({
+        desc: (vEntry.description||"").trim(), amount: vEntry.amount,
+        type: vEntry.expenseType||"", apt: vEntry.apt||""
+      })); }catch(e){}
+    }
+    if(!imgs.length){
       alert("مصروف Siwar لازم فاتورة — ارفع صورة أو فعّل «توليد فاتورة».");
       return;
     }
-    try{
-      vEntry.photo = buildSiwarInvoice({
-        desc: (vEntry.description||"").trim(),
-        amount: vEntry.amount,
-        type: vEntry.expenseType||"",
-        apt: vEntry.apt||""
+    if(imgs.length === 1){
+      vEntry.photo = imgs[0];
+    } else {
+      setVoiceStatus("بيدمج "+imgs.length+" صور…","");
+      compositeImages(imgs, function(merged){
+        vEntry.photo = merged || imgs[0];
+        _finishVoiceSave();
       });
-    }catch(e){ alert("مش قادر أولّد الفاتورة — ارفع صورة."); return; }
+      return;
+    }
   }
 
-  var signed = (vEntry.flow==="in") ? vEntry.amount : -vEntry.amount;
-  var payload = {
-    sheet: vEntry.sheet,
-    amount: signed,
-    account: vEntry.account || (vEntry.sheet==="Siwar"?"Siwar":(vEntry.sheet==="Saraya"?"Saraya":(vEntry.sheet==="Cash"?"Cash":""))),
-    description: vEntry.description||"",
-    expenseType: (vEntry.sheet==="Cash"||vEntry.sheet==="Siwar")?(vEntry.expenseType||""):"",
-    dollarType: vEntry.sheet==="Dollar"?(vEntry.dollarType||"Transfer In"):"",
-    dollarPayer: vEntry.sheet==="Dollar"?(vEntry.dollarPayer||""):"",
-    sarayaType: vEntry.sheet==="Saraya"?(vEntry.sarayaType||"owner"):"",
-    sarayaApt:  vEntry.sheet==="Saraya"?(vEntry.sarayaApt||"stone/Private pool"):"",
-    paidBy: (vEntry.sheet==="Saraya" && vEntry.sarayaType==="Admin")?(vEntry.paidBy||"Alma"):"",
-    apt: vEntry.sheet==="Siwar"?(vEntry.apt||""):"",
-    photo: vEntry.photo||""
-  };
+  _finishVoiceSave();
 
-  // INSTANT: save to Firebase and show success immediately
-  saveToFirebase(payload);
-  // a bank-SMS purchase teaches the shop memory: this price → this item + category
-  if(vEntry._fromSms && vEntry._merchant && (vEntry.description || "").trim()){
-    try{ merchLearn(vEntry._merchant, vEntry.amount, vEntry.expenseType || "", vEntry.description.trim()); }catch(e){}
+  function _finishVoiceSave(){
+    var signed = (vEntry.flow==="in") ? vEntry.amount : -vEntry.amount;
+    var payload = {
+      sheet: vEntry.sheet,
+      amount: signed,
+      account: vEntry.account || (vEntry.sheet==="Siwar"?"Siwar":(vEntry.sheet==="Saraya"?"Saraya":(vEntry.sheet==="Cash"?"Cash":""))),
+      description: vEntry.description||"",
+      expenseType: (vEntry.sheet==="Cash"||vEntry.sheet==="Siwar")?(vEntry.expenseType||""):"",
+      dollarType: vEntry.sheet==="Dollar"?(vEntry.dollarType||"Transfer In"):"",
+      dollarPayer: vEntry.sheet==="Dollar"?(vEntry.dollarPayer||""):"",
+      sarayaType: vEntry.sheet==="Saraya"?(vEntry.sarayaType||"owner"):"",
+      sarayaApt:  vEntry.sheet==="Saraya"?(vEntry.sarayaApt||"stone/Private pool"):"",
+      paidBy: (vEntry.sheet==="Saraya" && vEntry.sarayaType==="Admin")?(vEntry.paidBy||"Alma"):"",
+      apt: vEntry.sheet==="Siwar"?(vEntry.apt||""):"",
+      photo: vEntry.photo||""
+    };
+    saveToFirebase(payload);
+    // a bank-SMS purchase teaches the shop memory: this price → this item + category
+    if(vEntry._fromSms && vEntry._merchant && (vEntry.description || "").trim()){
+      try{ merchLearn(vEntry._merchant, vEntry.amount, vEntry.expenseType || "", vEntry.description.trim()); }catch(e){}
+    }
+    closeVoiceModal();
+    setVoiceStatus("✓ Saved: "+payload.sheet+" · "+(vEntry.flow==="in"?"+":"−")+vEntry.amount.toLocaleString()+(payload.description?(" · "+payload.description):""),"ok");
+    loadMemory();
+    if(voiceQueue && voiceQueue.length){ setTimeout(nextVoiceCard, 250); }
   }
-  closeVoiceModal();
-  setVoiceStatus("✓ Saved: "+payload.sheet+" · "+(vEntry.flow==="in"?"+":"−")+vEntry.amount.toLocaleString()+(payload.description?(" · "+payload.description):""),"ok");
-  loadMemory();
-  if(voiceQueue && voiceQueue.length){ setTimeout(nextVoiceCard, 250); }
 }
 
 /* ============ SMART MEMORY ============ */
