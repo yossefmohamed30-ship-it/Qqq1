@@ -2270,34 +2270,256 @@ loadMemory();
 updateSyncBadge();
 verifyLedger(function(){ updateSyncBadge(); });
 
-/* ─── SMS AUTO-ENTRY: opened via ?sms=<urlencoded text> ───
-   A Shortcuts automation can open this URL when a bank SMS arrives,
-   and the confirm card appears pre-filled automatically. ─── */
-(function(){
+/* ═══════════════════════════════════════════════════════════════
+   BANK SMS → ENTRY  (client-side parser + merchant memory)
+   A Shortcuts automation opens  …/expense-app.html#sms=<urlencoded text>
+   when a bank SMS arrives; the confirm card appears filled in.
+   Everything here is local — no backend call, works offline, and the
+   category learns from what you pick.
+   ═══════════════════════════════════════════════════════════════ */
+
+/* which card / message → which account (his rules) */
+var SMS_CARD_ACCT = { "4192":"Qnb", "1679":"Insta", "3970":"Visa-Misr 2", "4486":"Qnb", "5041":"Insta", "4500":"Insta" };
+var SMS_USD_RATE_KEY = "jfin_usd_rate_v1";
+function smsUsdRate(){ var r = parseFloat(localStorage.getItem(SMS_USD_RATE_KEY)); return (r>0) ? r : 51; }
+function smsSetUsdRate(r){ try{ if(parseFloat(r)>0) localStorage.setItem(SMS_USD_RATE_KEY, String(parseFloat(r))); }catch(e){} }
+
+/* ── merchant memory: { "queen bakery": {cat, desc, n, amts:{"15":{cat,n}}} } ── */
+var MERCH_KEY = "jfin_merch_v1";
+function merchGet(){ try{ return JSON.parse(localStorage.getItem(MERCH_KEY) || "{}") || {}; }catch(e){ return {}; } }
+function merchSet(m){ try{ localStorage.setItem(MERCH_KEY, JSON.stringify(m)); }catch(e){} }
+function merchNorm(s){ return String(s||"").toLowerCase().replace(/[^a-z0-9؀-ۿ ]+/g," ").replace(/\s+/g," ").trim(); }
+function merchLookup(name, amount){
+  var m = merchGet(), k = merchNorm(name);
+  if(!k || !m[k]) return null;
+  var e = m[k], ak = String(Math.round(amount||0));
+  var cat = (e.amts && e.amts[ak] && e.amts[ak].cat) ? e.amts[ak].cat : (e.cat || "");
+  return { cat: cat, desc: e.desc || name, n: e.n || 0 };
+}
+function merchLearn(name, amount, cat, desc){
+  var k = merchNorm(name);
+  if(!k) return;
+  var m = merchGet();
+  var e = m[k] || { cat:"", desc:(desc||name), n:0, amts:{} };
+  if(cat)  e.cat  = cat;
+  if(desc) e.desc = desc;
+  e.n = (e.n || 0) + 1;
+  var ak = String(Math.round(amount||0));
+  e.amts = e.amts || {};
+  e.amts[ak] = e.amts[ak] || { cat:"", n:0 };
+  e.amts[ak].n++;
+  if(cat) e.amts[ak].cat = cat;
+  m[k] = e; merchSet(m);
+}
+
+/* strip payment-aggregator noise off a raw merchant string */
+function smsCleanMerchant(raw){
+  var s = String(raw || "").trim();
+  if(!s) return "";
+  s = s.replace(/^\s*(PAYMOB|GEIDEA|FAWRY(?:PAY)?|OPAY|VALU|KASHIER|ACCEPT|TPAY|MASARY|KLIVVR|PAYTABS|BEE)\s*[-*:_ ]+\s*/i, "");
+  s = s.replace(/^[*#\s]+/, "");
+  s = s.replace(/[*#]\s*[0-9A-Z]{4,}\s*$/i, "");            // trailing "* 1SHFDI" ref
+  s = s.replace(/\s+No[.\s-]*\d[\d\s-]*$/i, "");            // "ATM-No 04760590 …"
+  s = s.replace(/[-_\s]+(Prepaid|POS|MOBIL\s+E|ATM)\b.*$/i, "");
+  s = s.replace(/[-_\s]+Pre\b[\s\S]*$/i, "");               // "…-Pre Giz" branch/location tail
+  s = s.split(/[,،]/)[0];
+  s = s.replace(/\s+\d{1,2}[\/-]\d{1,2}[\/-]\d{2,4}.*$/, "");                       // trailing date
+  // trailing boilerplate that sometimes follows the merchant with no comma
+  s = s.replace(/\s+(?:call|your\b|available\b|bal\.?|balance|on\s+\d|for\s+lost|للمزيد|اتصل|إتصل|المتاح|الرصيد|رقم\s*مرجعي|يوم)\b[\s\S]*$/i, "");
+  s = s.replace(/\s+\d{3,}\s*$/, "");                                              // trailing hotline / ref number
+  return s.replace(/\s{2,}/g, " ").trim();
+}
+
+function smsNum(x){ var n = parseFloat(String(x==null?"":x).replace(/[,\s]/g,"")); return isFinite(n) ? n : 0; }
+
+/* the parser — returns {ignore,why} | {__xfer:{…}} | {queue:[entry,…]} */
+function smsToQueue(raw){
+  var t = String(raw || "").replace(/[‎‏٬]/g, "").trim();
+  if(!t) return null;
+
   try{
-    var params = new URLSearchParams(window.location.search);
-    var smsText = params.get('sms');
-    if(!smsText) return;
-    smsText = decodeURIComponent(smsText);
-    setVoiceStatus('📩 “'+smsText+'” — reading SMS…', "");
-    jsonpCall({action:"sms", text:smsText}, function(res){
-      if(res && res.status==="ok"){
-        setVoiceStatus("","");
-        var list = Array.isArray(res.parsed) ? res.parsed : [res.parsed];
-        voiceQueue = list.slice();
-        voiceQueueText = smsText;
-        nextVoiceCard();
+    /* 0 — skip non-transactions */
+    if(/requested a transfer|طلب(?:ت|كم)? تحويل/i.test(t))  return { ignore:true, why:"تحويل لسه معلّق" };
+    if(/\botp\b|رمز (?:التحقق|الدخول|سري)|verification code|one[- ]time|كلمة (?:السر|المرور)|رصيدك الحالي فقط/i.test(t) && !/خصم|سحب|debited|transaction of/i.test(t))
+      return { ignore:true, why:"رسالة مش معاملة" };
+
+    /* 1 — amount + currency */
+    var cur = "EGP", amt = 0;
+    var u = t.match(/USD\s*([0-9][0-9.,]*)|([0-9][0-9.,]*)\s*USD|\$\s*([0-9][0-9.,]*)/i);
+    if(u){ cur = "USD"; amt = smsNum(u[1]||u[2]||u[3]); }
+    else {
+      var pats = [
+        /transaction of\s*(?:EGP\s*)?([0-9][0-9.,]*)/i,
+        /amount of\s*(?:EGP\s*)?([0-9][0-9.,]*)/i,
+        /debited by\s*(?:EGP\s*)?([0-9][0-9.,]*)/i,
+        /(?:خصم|سحب)\s*(?:مبلغ\s*)?([0-9][0-9.,]*)/i,
+        /(?:بمبلغ|مبلغ)\s*([0-9][0-9.,]*)/i,
+        /(?:EGP|LE)\s*([0-9][0-9.,]*)/i,
+        /([0-9][0-9.,]*)\s*(?:EGP|LE|جنيه|جنية|جم|ج\.?م)/i
+      ];
+      for(var pi=0; pi<pats.length; pi++){ var mm = t.match(pats[pi]); if(mm){ amt = smsNum(mm[1]); break; } }
+    }
+
+    /* 2 — direction  (note: \b doesn't work next to Arabic letters) */
+    var incoming = /(?:تم\s*)?(?:إضاف[ةه]|اضاف[ةه]|است[إ]?لام|إستلام|استقبال|إستقبال|أضيف)|received|credited|added to/i.test(t);
+    var flow = incoming ? "in" : "out";
+
+    /* 3 — card last 4 */
+    var card = "";
+    var c1 = t.match(/[*xX•·]{2,}\s*(\d{4})\b/);
+    var c2 = t.match(/(?:card|بطاقت?(?:كم|ها)?|رقم|account|حساب(?:كم)?|from)\s*[:#]?\s*(?:no\.?|رقم|#)?\s*(\d{4})\b/i);
+    card = (c1 && c1[1]) || (c2 && c2[1]) || "";
+
+    /* 4 — bank / rail */
+    var bank = /19700/.test(t) ? "QNB"
+             : /19623|الأهلي|الاهلي|prepaid|مسبقة الدفع|المدفوعة مقدما/i.test(t) ? "NBE"
+             : /19888|بنك مصر|banque\s*misr|BM\s*(?:card|MOBIL)/i.test(t) ? "BM"
+             : /16990|القاهرة|القاهره/i.test(t) ? "CAIRO"
+             : /فودافون|vodafone|vf\s*cash|محفظت?[كه]|محفظة/i.test(t) ? "VF"
+             : "";
+
+    /* 5 — kind */
+    var isIPN    = /تحويل لحظي|تحويل فوري|IPN transfer|إنستا\s*باي|انستا\s*باي|instapay/i.test(t);
+    var isWallet = /محفظ|فودافون كاش|vodafone cash/i.test(t);
+    var isATM    = /\bATM\b|ماكينة الصراف|صراف آلي|صراف الي/i.test(t);
+    var isPurch  = /(?:successful )?transaction|debited|خصم|purchase|@|عند /i.test(t);
+    var kind = isATM ? "atm"
+             : (isWallet && !incoming) ? "wallet_out"
+             : (isWallet && incoming)  ? "wallet_in"
+             : isIPN ? "ipn"
+             : isPurch ? "pos"
+             : "generic";
+
+    /* 6 — merchant / counterparty  (\b fails next to Arabic, so avoid it) */
+    var merchant = "", who = "";
+    var mAt  = t.match(/@\s*([^,،\n]+)/);
+    var mAt2 = t.match(/(?:عند|في|[Ii]n |[Aa]t )\s*([A-Za-z0-9#*.\-][^,،\n]*?)(?:\s+(?:يوم|بتاريخ|on |available|المتاح|الرصيد|رقم|Ref)|[,،]|$)/);
+    if(kind === "pos" || cur === "USD"){
+      merchant = smsCleanMerchant((mAt && mAt[1]) || (mAt2 && mAt2[1]) || "");
+      if(!/[A-Za-z؀-ۿ]/.test(merchant)) merchant = "";   // reject a time/number match
+    }
+    // who paid / got paid — "registered as <name>" wins, else by direction
+    var mWho = t.match(/(?:بإسم|باسم|بأسم)\s*([A-Za-z؀-ۿ][A-Za-z؀-ۿ*.\s]{2,45})/);
+    if(!mWho){
+      var whoRe = incoming
+        ? /(?:\bمن\b|\bfrom\b|من\s)\s*([A-Za-z؀-ۿ*.][A-Za-z؀-ۿ*.\s]{2,45})/
+        : /(?:\bإلى\b|\bالى\b|\bالي\b|\bto\b|إلى\s|الى\s|الي\s)\s*([A-Za-z؀-ۿ*.][A-Za-z؀-ۿ*.\s]{2,45})/;
+      mWho = t.match(whoRe);
+    }
+    if(mWho) who = mWho[1].replace(/\s+(?:رقم|Ref|يوم|على|في|بتاريخ|المسجل|طبقا|المتاح).*$/i, "").replace(/\s{2,}/g," ").trim();
+    if(/^(?:رقم|محفظت|حساب|بطاقت?|بطاقة|no\.?|ref)\b/i.test(who) || who.length < 3) who = "";
+    var ownName = /^\s*(?:YO?U?SEF|YOSIEF|يوسف)\b/i.test(who) || /NOURELDIN/i.test(who);
+
+    /* 7 — account (his rules) */
+    var acct = (cur === "USD") ? "Visa-Misr 2"
+             : (kind === "ipn") ? "Insta"
+             : (card && SMS_CARD_ACCT[card]) ? SMS_CARD_ACCT[card]
+             : (bank === "QNB" || bank === "BM") ? "Qnb"
+             : (bank === "NBE" || bank === "CAIRO") ? "Insta"
+             : (bank === "VF") ? "VF"
+             : "Cash";
+
+    /* 8 — route */
+    // cash pulled out of a card/wallet → a Transfer into Cash, no category needed
+    if(kind === "atm" || kind === "wallet_out"){
+      return { __xfer:{ dir:"egp2egp", from:acct, to:"Cash", egp: amt } };
+    }
+    // money you moved between your OWN accounts → Transfer (you pick the other side)
+    if((kind === "ipn" || kind === "wallet_in") && incoming && ownName){
+      return { __xfer:{ dir:"egp2egp", from:"", to:acct, egp: amt } };
+    }
+
+    var e = { sheet:"Cash", flow:flow, amount: amt, account:acct,
+              description:"", expenseType:"", _fromSms:true, _merchant:"" };
+
+    if(cur === "USD"){
+      var rate = smsUsdRate();
+      e.amount = Math.round(amt * rate);
+      e._usd = amt;
+      e._merchant = merchant;
+      e.description = (merchant || "شراء دولاري") + " ($" + amt + " × " + rate + ")";
+      var hitU = merchant ? merchLookup(merchant, e.amount) : null;
+      if(hitU && hitU.cat) e.expenseType = hitU.cat;
+    } else if(kind === "pos"){
+      e._merchant = merchant;
+      e.description = merchant || "";
+      var hit = merchant ? merchLookup(merchant, amt) : null;
+      if(hit){ e.description = hit.desc || merchant; if(hit.cat) e.expenseType = hit.cat; }
+    } else if(kind === "ipn" || kind === "wallet_in"){
+      if(incoming){
+        e.description = who && !/\*/.test(who) ? ("وارد من " + who) : "تحويل وارد";
       } else {
-        setVoiceStatus("⚠️ "+((res&&res.message)||"Couldn't read SMS."),"err");
+        e.description = who && !/\*/.test(who) ? who : "تحويل إنستاباي صادر";
       }
-      // clean the URL so refresh/back doesn't re-trigger
-      try{ window.history.replaceState({}, document.title, window.location.pathname); }catch(e){}
-    }, function(){
-      setVoiceStatus("⚠️ Couldn't reach the assistant.","err");
-      try{ window.history.replaceState({}, document.title, window.location.pathname); }catch(e){}
-    });
+    } else {
+      e.description = "";
+    }
+
+    return { queue:[e] };
+  }catch(err){
+    // never lose an entry — fall back to a near-empty card
+    return { queue:[{ sheet:"Cash", flow:"out", amount:0, account:"Cash", description:"", expenseType:"", _fromSms:true, _merchant:"" }] };
+  }
+}
+
+/* open the Transfer card pre-filled from an SMS */
+function openSmsTransfer(x){
+  if(syncBlocked()){ openSync(); return; }
+  openVoiceModal({
+    sheet:"Transfer",
+    xferDir: x.dir || "egp2egp",
+    xferFrom: x.from || "",
+    xferTo: x.to || "",
+    xferEgp: (x.egp != null ? String(x.egp) : ""),
+    xferUsd: (x.usd != null ? String(x.usd) : ""),
+    _fromSms:true
+  }, x.raw || "");
+}
+
+/* de-dupe: same SMS opened twice (double-tap, re-fire) shouldn't log twice */
+var SMS_SEEN_KEY = "jfin_sms_seen_v1";
+function smsHash(s){ var h=0; s=String(s); for(var i=0;i<s.length;i++){ h=(h*31 + s.charCodeAt(i))|0; } return String(h); }
+function smsAlreadySeen(raw){
+  var key = smsHash(String(raw).replace(/\s+/g," ").trim()), now = Date.now(), seen = {};
+  try{ seen = JSON.parse(localStorage.getItem(SMS_SEEN_KEY) || "{}") || {}; }catch(e){}
+  Object.keys(seen).forEach(function(k){ if(now - seen[k] > 864e5) delete seen[k]; });
+  var dup = seen[key] && (now - seen[key] < 6e5);
+  seen[key] = now;
+  try{ localStorage.setItem(SMS_SEEN_KEY, JSON.stringify(seen)); }catch(e){}
+  return !!dup;
+}
+
+function handleIncomingSms(){
+  var raw = null;
+  try{
+    raw = new URLSearchParams(window.location.search).get('sms');
+    if(!raw && window.location.hash){
+      raw = new URLSearchParams(window.location.hash.replace(/^#/,"")).get('sms');
+    }
   }catch(e){}
-})();
+  if(!raw) return;
+  try{ raw = decodeURIComponent(raw); }catch(e){}
+  raw = String(raw).trim();
+  try{ window.history.replaceState({}, document.title, window.location.pathname); }catch(e){}
+  if(!raw) return;
+
+  if(smsAlreadySeen(raw)){ setVoiceStatus("📩 الرسالة دي اتسجّلت قبل كده","ok"); return; }
+
+  var r = smsToQueue(raw);
+  if(!r){ setVoiceStatus("📩 مش قادر أقرأ الرسالة — سجّلها يدوي","err"); return; }
+  if(r.ignore){ setVoiceStatus("📩 اتجاهلت: " + (r.why || "مش معاملة"), ""); return; }
+  if(r.__xfer){ voiceQueueText = raw; openSmsTransfer(Object.assign({ raw:raw }, r.__xfer)); return; }
+
+  var list = r.queue || [];
+  if(!list.length){ setVoiceStatus("📩 مش قادر أقرأ الرسالة — سجّلها يدوي","err"); return; }
+  voiceQueue = list.slice();
+  voiceQueueText = raw;
+  nextVoiceCard();
+}
+window.addEventListener('hashchange', function(){ try{ handleIncomingSms(); }catch(e){} });
+// defer one tick: this runs mid-script, and renderVoiceFields() needs consts
+// (MIC_SVG, etc.) that are defined further down the file
+setTimeout(function(){ try{ handleIncomingSms(); }catch(e){} }, 0);
 
 // cinematic splash → reveal
 (function(){
@@ -2454,7 +2676,10 @@ function openVoiceModal(p, heard, remaining){
     xferUsd: p.xferUsd||"",
     xferRate: p.xferRate||"",
     xferLast: "",
-    _typeTouched: false
+    _fromSms: !!p._fromSms,
+    _merchant: p._merchant||"",
+    _usd: Number(p._usd)||0,
+    _typeTouched: !!p.expenseType
   };
   var head = document.querySelector('#voiceModal .modal-head');
   if(heard){
@@ -3115,6 +3340,10 @@ function saveVoice(){
 
   // INSTANT: save to Firebase and show success immediately
   saveToFirebase(payload);
+  // a bank-SMS entry teaches the merchant memory whatever category you kept
+  if(vEntry._fromSms && vEntry._merchant){
+    try{ merchLearn(vEntry._merchant, vEntry.amount, vEntry.expenseType || "", vEntry.description || ""); }catch(e){}
+  }
   closeVoiceModal();
   setVoiceStatus("✓ Saved: "+payload.sheet+" · "+(vEntry.flow==="in"?"+":"−")+vEntry.amount.toLocaleString()+(payload.description?(" · "+payload.description):""),"ok");
   loadMemory();
