@@ -961,6 +961,10 @@ input[type=range].set::-webkit-slider-thumb:active{transform:scale(1.15);}
 .color-def:active{transform:scale(.95);}
 body.custom-numbers .hero-val,body.custom-numbers .hero-val.neg,body.custom-numbers .balval,body.custom-numbers .balval.neg,body.custom-numbers .hs-v,body.custom-numbers .hval{color:var(--numcol) !important;}
 .seg{display:flex;gap:6px;}
+/* the Account-book selector holds 5 items now (…, ⇄ Transfer) — let it wrap
+   to a second row on narrow phones instead of clipping the labels */
+#vSeg-sheet{flex-wrap:wrap;}
+#vSeg-sheet .seg-b{min-width:60px;}
 .seg-b{flex:1;padding:10px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;transition:all .22s cubic-bezier(.2,.8,.3,1);}
 .seg-b:active{transform:scale(.95);}
 .seg-b.on{background:rgba(127,201,232,.1);border-color:rgba(127,201,232,.45);color:var(--green);animation:tabpop .3s cubic-bezier(.2,1.4,.4,1);}
@@ -1724,8 +1728,8 @@ function outboxSet(list){
 function outboxAdd(item){ var l = outboxGet(); l.push(item); outboxSet(l); }
 function outboxRemove(id){ outboxSet(outboxGet().filter(function(x){ return x.id !== id; })); }
 
-function saveToFirebase(payload){
-  var ts = Date.now();
+function saveToFirebase(payload, tsOverride){
+  var ts = tsOverride || Date.now();
   var eid = "e" + ts + "-" + Math.floor(Math.random()*10000);
   payload._eid = eid;
 
@@ -1997,11 +2001,16 @@ function loadBalances(force){
 const ACCOUNTS = ["Qnb","Insta","Cash","VF","Visa-Misr","Visa-Misr 2","Siwar","Saraya"];
 /* الاسم اللي بيتعرض بس. المفتاح "Saraya" زي ما هو جوّه الكود،
    والـ Apps Script بيوصّله لتاب Alma-vera. */
-const SHEET_LABEL = {Cash:"Cash", Siwar:"Siwar", Saraya:"Alma-vera", Dollar:"Dollar"};
+const SHEET_LABEL = {Cash:"Cash", Siwar:"Siwar", Saraya:"Alma-vera", Dollar:"Dollar", Transfer:"⇄"};
 function shLabel(s){ return SHEET_LABEL[s] || s; }
 const SARAYA_TYPES = ["owner","Opex","Admin","income"];
 const SARAYA_APTS  = ["stone/Private pool","Alma viola"];
 const SARAYA_PAID_BY = ["Alma","Me"]; // Admin-only: who actually paid — Alma unless picked otherwise
+/* ⇄ Transfer between accounts — the EGP side is any personal account
+   (business books Siwar/Saraya are deliberately excluded). Records TWO
+   normal rows: one on Cash, one on Dollar (or two on Cash for EGP→EGP),
+   so the existing Firebase→Sheet sync handles them with no backend change. */
+const XFER_EGP_ACCTS = ["Qnb","Insta","Cash","VF","Visa-Misr","Visa-Misr 2"];
 
 /* ===== SIWAR (company) ===== */
 const DOLLAR_PAYERS = ["Binance","Redotpay","Kast","Dollar cash","Phantom","Qnb dollar"];
@@ -2428,7 +2437,7 @@ function nextVoiceCard(){
 var vEntry = {};
 function openVoiceModal(p, heard, remaining){
   vEntry = {
-    sheet: (["Cash","Siwar","Saraya","Dollar"].indexOf(p.sheet)!==-1)?p.sheet:"Cash",
+    sheet: (["Cash","Siwar","Saraya","Dollar","Transfer"].indexOf(p.sheet)!==-1)?p.sheet:"Cash",
     flow: (p.flow==="in")?"in":"out",
     amount: Math.abs(Number(p.amount)||0),
     account: p.account||"",
@@ -2438,6 +2447,13 @@ function openVoiceModal(p, heard, remaining){
     apt: p.apt||"",
     photo: "",
     loanPerson: p.loanPerson||"",
+    xferDir: p.xferDir||"egp2usd",
+    xferFrom: p.xferFrom||"",
+    xferTo: p.xferTo||"",
+    xferEgp: p.xferEgp||"",
+    xferUsd: p.xferUsd||"",
+    xferRate: p.xferRate||"",
+    xferLast: "",
     _typeTouched: false
   };
   var head = document.querySelector('#voiceModal .modal-head');
@@ -2634,10 +2650,16 @@ function renderVoiceFields(){
   var html="";
   // sheet selector
   html += '<div class="m-field"><label>Account book</label><div class="seg" id="vSeg-sheet">';
-  ["Cash","Siwar","Saraya","Dollar"].forEach(function(s){
+  ["Cash","Siwar","Saraya","Dollar","Transfer"].forEach(function(s){
     html += '<button class="seg-b'+(vEntry.sheet===s?' on':'')+'" onclick="vSet(\'sheet\',\''+s+'\')">'+shLabel(s)+'</button>';
   });
   html += '</div></div>';
+  if(vEntry.sheet==="Transfer"){
+    html += renderTransferFields();
+    f.innerHTML = html;
+    setupTransferInputs();
+    return;
+  }
   // flow (not for Dollar where sign is by type, but keep simple: show for all)
   html += '<div class="m-field"><label>Type</label><div class="seg">';
   html += '<button class="seg-b'+(vEntry.flow==='out'?' on red':'')+'" onclick="vSet(\'flow\',\'out\')">− Expense</button>';
@@ -2926,15 +2948,148 @@ function vSet(key,val){
   // read current text inputs before re-render so we don't lose edits
   var a=document.getElementById('v-amount'); if(a) vEntry.amount=a.value;
   var d=document.getElementById('v-description'); if(d && !d.readOnly) vEntry.description=d.value;
+  var xe=document.getElementById('x-egp'); if(xe) vEntry.xferEgp=xe.value;
+  var xu=document.getElementById('x-usd'); if(xu) vEntry.xferUsd=xu.value;
+  var xr=document.getElementById('x-rate'); if(xr) vEntry.xferRate=xr.value;
   vEntry[key]=val;
   // switching sheet/flow clears the loan pick — the person list & Loan/Repaid
   // wording depend on which sheet+direction we're in, so stale picks would
   // silently mislabel the entry
   if(key==="sheet" || key==="flow") vEntry.loanPerson="";
+  // the From/To account lists swap when the transfer direction changes, so a
+  // stale pick could point at the wrong currency's account
+  if(key==="xferDir" || key==="sheet"){ vEntry.xferFrom=""; vEntry.xferTo=""; }
   renderVoiceFields();
 }
 
+/* ============ ⇄ TRANSFER BETWEEN ACCOUNTS ============
+   One screen, but it writes TWO ordinary rows so the existing sync needs
+   no change:
+     EGP → $     Cash −EGP (type "Dollar Deposit")   + Dollar +USD ("Transfer In")
+     $ → EGP     Dollar −USD ("Transfer Out")        + Cash  +EGP (type "Dollar Withdrawal")
+     EGP → EGP   Cash −EGP (type "Transfer=><to>")   + Cash  +EGP (blank type)
+   The rate field is only a helper — it fills whichever of EGP/USD you
+   left blank; both numbers still get saved as real figures. */
+function xferRound2(n){ return Math.round((Number(n)||0)*100)/100; }
+function xferTrim(n){ return String(xferRound2(n)); }
+function xferDirLabel(d){ return d==="usd2egp" ? "$ → EGP" : d==="egp2egp" ? "EGP → EGP" : "EGP → $"; }
+
+function renderTransferFields(){
+  var d = vEntry.xferDir || "egp2usd";
+  var cross = (d !== "egp2egp");
+  var fromList = (d === "usd2egp") ? DOLLAR_PAYERS : XFER_EGP_ACCTS;
+  var toList   = (d === "egp2usd") ? DOLLAR_PAYERS : XFER_EGP_ACCTS;
+  var h = "";
+  h += '<div class="m-field"><label>Direction</label><div class="seg">';
+  [["egp2usd","EGP → $"],["usd2egp","$ → EGP"],["egp2egp","EGP → EGP"]].forEach(function(o){
+    h += '<button class="seg-b'+(d===o[0]?' on':'')+'" onclick="vSet(\'xferDir\',\''+o[0]+'\')">'+o[1]+'</button>';
+  });
+  h += '</div></div>';
+  h += '<div class="m-field"><label>From'+(d==="usd2egp"?" (dollar account)":" (Egyptian account)")+'</label><div class="chip-grid">';
+  fromList.forEach(function(x){
+    h += '<button class="acc-chip'+(vEntry.xferFrom===x?' on':'')+'" onclick="vSet(\'xferFrom\',\''+x.replace(/'/g,"\\'")+'\')">'+esc(x)+'</button>';
+  });
+  h += '</div></div>';
+  h += '<div class="m-field"><label>To'+(d==="egp2usd"?" (dollar account)":" (Egyptian account)")+'</label><div class="chip-grid">';
+  toList.forEach(function(x){
+    var same = (d==="egp2egp" && x===vEntry.xferFrom);
+    h += '<button class="acc-chip'+(vEntry.xferTo===x?' on':'')+'"'+(same?' disabled style="opacity:.35"':'')
+       + ' onclick="'+(same?'':'vSet(\'xferTo\',\''+x.replace(/'/g,"\\'")+'\')')+'">'+esc(x)+'</button>';
+  });
+  h += '</div></div>';
+  if(cross){
+    h += '<div class="m-field"><label>EGP amount — left the Egyptian account</label><input id="x-egp" type="number" inputmode="decimal" placeholder="0" value="'+esc(vEntry.xferEgp||"")+'"></div>';
+    h += '<div class="m-field"><label>USD amount — landed in the dollar account</label><input id="x-usd" type="number" inputmode="decimal" placeholder="0" value="'+esc(vEntry.xferUsd||"")+'"></div>';
+    h += '<div class="m-field"><label>Rate — EGP per $ (optional)</label><input id="x-rate" type="number" inputmode="decimal" placeholder="e.g. 50" value="'+esc(vEntry.xferRate||"")+'"></div>';
+    h += '<div class="amt-hint" id="x-hint"></div>';
+  } else {
+    h += '<div class="m-field"><label>Amount (EGP)</label><input id="x-egp" type="number" inputmode="decimal" placeholder="0" value="'+esc(vEntry.xferEgp||"")+'"></div>';
+  }
+  return h;
+}
+
+function setupTransferInputs(){
+  ["x-egp","x-usd","x-rate"].forEach(function(id){
+    var el = document.getElementById(id);
+    if(!el) return;
+    el.oninput = function(){
+      if(id==="x-egp"){ vEntry.xferEgp=this.value; vEntry.xferLast="egp"; }
+      if(id==="x-usd"){ vEntry.xferUsd=this.value; vEntry.xferLast="usd"; }
+      if(id==="x-rate"){ vEntry.xferRate=this.value; }
+      transferAutoCompute();
+    };
+  });
+  transferAutoCompute();
+}
+
+function transferAutoCompute(){
+  if((vEntry.xferDir||"egp2usd")==="egp2egp") return;
+  var rate = parseFloat(vEntry.xferRate)||0;
+  if(rate>0){
+    if(vEntry.xferLast==="usd"){
+      var usd = parseFloat(vEntry.xferUsd)||0;
+      if(usd>0){ vEntry.xferEgp = xferTrim(usd*rate); var e=document.getElementById('x-egp'); if(e && document.activeElement!==e) e.value=vEntry.xferEgp; }
+    } else {
+      var egp = parseFloat(vEntry.xferEgp)||0;
+      if(egp>0){ vEntry.xferUsd = xferTrim(egp/rate); var u=document.getElementById('x-usd'); if(u && document.activeElement!==u) u.value=vEntry.xferUsd; }
+    }
+  }
+  var hint = document.getElementById('x-hint');
+  if(hint){
+    var e2=parseFloat(vEntry.xferEgp)||0, u2=parseFloat(vEntry.xferUsd)||0;
+    hint.textContent = (e2>0 && u2>0) ? ("Effective rate ≈ "+(e2/u2).toFixed(2)+" EGP / $") : "";
+  }
+}
+
+function saveTransfer(){
+  var xe=document.getElementById('x-egp'); if(xe) vEntry.xferEgp=xe.value;
+  var xu=document.getElementById('x-usd'); if(xu) vEntry.xferUsd=xu.value;
+  var xr=document.getElementById('x-rate'); if(xr) vEntry.xferRate=xr.value;
+
+  var d = vEntry.xferDir || "egp2usd";
+  var from = vEntry.xferFrom, to = vEntry.xferTo;
+  var egp = Math.abs(parseFloat(vEntry.xferEgp)||0);
+  var usd = Math.abs(parseFloat(vEntry.xferUsd)||0);
+
+  if(!from || !to){ alert("Pick both the From and the To account."); return; }
+  if(d==="egp2egp" && from===to){ alert("From and To can't be the same account."); return; }
+  if(!egp){ alert("Enter the EGP amount."); return; }
+  if(d!=="egp2egp" && !usd){ alert("Enter the USD amount (or a rate so it can be worked out)."); return; }
+
+  var legs = [];
+  if(d==="egp2usd"){
+    legs.push({ sheet:"Cash",   amount:-egp, account:from, expenseType:"Dollar Deposit",
+                description:"⇄ Transfer → "+to+" ($"+xferTrim(usd)+")" });
+    legs.push({ sheet:"Dollar", amount:+usd, dollarType:"Transfer In", dollarPayer:to,
+                description:"⇄ From "+from+" (EGP "+xferTrim(egp)+")" });
+  } else if(d==="usd2egp"){
+    legs.push({ sheet:"Dollar", amount:-usd, dollarType:"Transfer Out", dollarPayer:from,
+                description:"⇄ Transfer → "+to+" (EGP "+xferTrim(egp)+")" });
+    legs.push({ sheet:"Cash",   amount:+egp, account:to, expenseType:"Dollar Withdrawal",
+                description:"⇄ From "+from+" ($"+xferTrim(usd)+")" });
+  } else {
+    legs.push({ sheet:"Cash", amount:-egp, account:from, expenseType:"Transfer=>"+to,
+                description:"⇄ Transfer → "+to });
+    legs.push({ sheet:"Cash", amount:+egp, account:to, expenseType:"",
+                description:"⇄ From "+from });
+  }
+
+  var base = Date.now();
+  legs.forEach(function(lg, i){
+    var full = Object.assign({
+      sheet:"", amount:0, account:"", description:"", expenseType:"",
+      dollarType:"", dollarPayer:"", sarayaType:"", sarayaApt:"", paidBy:"", apt:"", photo:""
+    }, lg);
+    saveToFirebase(full, base + i);
+  });
+
+  closeVoiceModal();
+  setVoiceStatus("✓ Transfer saved: "+xferDirLabel(d)+" · "+from+" → "+to,"ok");
+  loadMemory();
+}
+
 function saveVoice(){
+  if(vEntry.sheet==="Transfer"){ saveTransfer(); return; }
   var a=document.getElementById('v-amount'); if(a) vEntry.amount=Math.abs(parseFloat(a.value)||0);
   var d=document.getElementById('v-description'); if(d) vEntry.description=d.value;
   var dt=document.getElementById('v-dollarType'); if(dt) vEntry.dollarType=dt.value;
