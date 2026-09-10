@@ -2700,7 +2700,6 @@ function openVoiceModal(p, heard, remaining){
     xferRate: p.xferRate||"",
     xferLast: "",
     genInvoice: (p.genInvoice!==false),
-    invName: p.invName||"",
     _fromSms: !!p._fromSms,
     _merchant: p._merchant||"",
     _merchChips: Array.isArray(p._merchChips) ? p._merchChips : [],
@@ -3015,8 +3014,6 @@ function renderVoiceFields(){
         +   '<input type="checkbox" id="v-genInv"'+(vEntry.genInvoice!==false?' checked':'')+' style="width:18px;height:18px">'
         +   '🧾 توليد فاتورة تلقائيًا (لو مفيش صورة)'
         + '</label></div>';
-      html += '<div class="m-field"><label>السيد / (اختياري — للفاتورة المولّدة)</label>'
-        + '<input type="text" id="v-invName" value="'+esc(vEntry.invName||"")+'" placeholder="اسم المستفيد"></div>';
     }
   }
   f.innerHTML=html;
@@ -3039,11 +3036,9 @@ function renderVoiceFields(){
     var st0=document.getElementById('photoStatus');
     if(st0 && vEntry.photo){ st0.textContent="✓ Photo attached"; }
   }
-  // generate-invoice controls (Siwar)
+  // generate-invoice toggle (Siwar)
   var gi=document.getElementById('v-genInv');
   if(gi) gi.onchange=function(){ vEntry.genInvoice=this.checked; };
-  var gin=document.getElementById('v-invName');
-  if(gin) gin.oninput=function(){ vEntry.invName=this.value; };
 
   // نصغّر الصورة قبل ما نبعتها — أسرع بكتير وبتفضل واضحة تمامًا
   function compressPhoto(file, cb){
@@ -3387,19 +3382,20 @@ function buildSiwarInvoice(o){
   x.fillStyle = "#141414";
   x.direction = "rtl"; x.textBaseline = "middle";
 
-  // title
+  // company name + title
   x.textAlign = "center";
-  x.strokeRect(W/2 - 95, 46, 190, 58);
-  x.font = "bold 38px 'Segoe UI','Tahoma',Arial";
-  x.fillText("فاتورة", W/2, 76);
+  x.font = "bold 30px 'Segoe UI','Tahoma',Arial";
+  x.fillText("سيوار", W/2, 60);
+  x.strokeRect(W/2 - 95, 92, 190, 54);
+  x.font = "bold 34px 'Segoe UI','Tahoma',Arial";
+  x.fillText("فاتورة", W/2, 120);
 
-  // date + payee
+  // date
   var d = new Date();
   var ds = ("0"+d.getDate()).slice(-2) + " / " + ("0"+(d.getMonth()+1)).slice(-2) + " / " + d.getFullYear();
   x.textAlign = "right";
   x.font = "22px 'Segoe UI','Tahoma',Arial";
-  x.fillText("التاريخ : " + ds, W - 55, 150);
-  x.fillText("السيد / " + (o.name || "............................................"), W - 55, 192);
+  x.fillText("التاريخ : " + ds, W - 55, 185);
 
   // table
   var left = 55, right = W - 55, top = 235, rowH = 52, rows = 9;
@@ -3455,7 +3451,6 @@ function saveVoice(){
   var sa=document.getElementById('v-siwarApt'); if(sa) vEntry.apt=sa.value;
   var st=document.getElementById('v-siwarType'); if(st) vEntry.expenseType=st.value;
   var gi=document.getElementById('v-genInv'); if(gi) vEntry.genInvoice=gi.checked;
-  var gin=document.getElementById('v-invName'); if(gin) vEntry.invName=gin.value;
   if(!vEntry.amount){ alert("Enter an amount."); return; }
 
   // a Siwar expense must carry an invoice — a photo, or an auto-generated one
@@ -3466,7 +3461,6 @@ function saveVoice(){
     }
     try{
       vEntry.photo = buildSiwarInvoice({
-        name: (vEntry.invName||"").trim(),
         desc: (vEntry.description||"").trim(),
         amount: vEntry.amount,
         type: vEntry.expenseType||"",
