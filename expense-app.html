@@ -3353,6 +3353,12 @@ function startFlow(){
   openVoiceModal({sheet:"Cash", flow:"out", amount:0, account:"", description:"", expenseType:"", dollarType:""}, "");
 }
 
+/* same entry card, but opened straight on the ⇄ Transfer tab */
+function startTransfer(){
+  if (syncBlocked()){ openSync(); return; }
+  openVoiceModal({sheet:"Transfer", flow:"out", amount:0}, "");
+}
+
 function show(id){
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
   document.getElementById(id).classList.add('active');
@@ -4267,6 +4273,10 @@ initMode();
   <div class="dw-item" onclick="dwGo(startFlow)">
     <div class="dw-ic">＋</div>
     <div><div>Add entry</div></div>
+  </div>
+  <div class="dw-item" onclick="dwGo(startTransfer)">
+    <div class="dw-ic">⇄</div>
+    <div><div>Transfer between accounts</div><div class="dw-sub">تحويل بين الحسابات — جنيه / دولار</div></div>
   </div>
   <div class="dw-item" onclick="dwGo(openMonthPicker)">
     <div class="dw-ic">🗓</div>
