@@ -962,6 +962,8 @@ input[type=range].set::-webkit-slider-thumb:active{transform:scale(1.15);}
 body.custom-numbers .hero-val,body.custom-numbers .hero-val.neg,body.custom-numbers .balval,body.custom-numbers .balval.neg,body.custom-numbers .hs-v,body.custom-numbers .hval{color:var(--numcol) !important;}
 .seg{display:flex;gap:6px;}
 .seg-b{flex:1;padding:10px;border-radius:11px;border:1px solid var(--line);background:transparent;color:var(--muted);font-family:var(--mono);font-size:12px;font-weight:600;cursor:pointer;transition:all .22s cubic-bezier(.2,.8,.3,1);}
+.xfer-launch{width:100%;margin:-2px 0 14px;padding:11px;border-radius:11px;border:1px dashed rgba(127,201,232,.4);background:rgba(127,201,232,.05);color:var(--green);font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.3px;cursor:pointer;transition:all .18s;}
+.xfer-launch:active{transform:scale(.985);background:rgba(127,201,232,.12);}
 .seg-b:active{transform:scale(.95);}
 .seg-b.on{background:rgba(127,201,232,.1);border-color:rgba(127,201,232,.45);color:var(--green);animation:tabpop .3s cubic-bezier(.2,1.4,.4,1);}
 .seg-b.on.red{background:rgba(240,143,166,.1);border-color:rgba(240,143,166,.45);color:var(--red);}
@@ -1994,7 +1996,7 @@ function loadBalances(force){
   document.body.appendChild(s);
 }
 
-const ACCOUNTS = ["Qnb","Insta","Cash","VF","Visa-Misr","Visa-Misr 2","Siwar","Saraya"];
+const ACCOUNTS = ["Insta","Qnb","VF","Visa-Misr","Visa-Misr 2"];
 /* الاسم اللي بيتعرض بس. المفتاح "Saraya" زي ما هو جوّه الكود،
    والـ Apps Script بيوصّله لتاب Alma-vera. */
 const SHEET_LABEL = {Cash:"Cash", Siwar:"Siwar", Saraya:"Alma-vera", Dollar:"Dollar", Transfer:"⇄"};
@@ -2896,7 +2898,7 @@ function cancelVoiceCard(){
 function renderVoiceFields(){
   var f=document.getElementById('voiceFields');
   var html="";
-  // sheet selector  (Transfer isn't here — it's reached from the side menu)
+  // sheet selector
   html += '<div class="m-field"><label>Account book</label><div class="seg" id="vSeg-sheet">';
   ["Cash","Siwar","Saraya","Dollar"].forEach(function(s){
     html += '<button class="seg-b'+(vEntry.sheet===s?' on':'')+'" onclick="vSet(\'sheet\',\''+s+'\')">'+shLabel(s)+'</button>';
@@ -2908,6 +2910,8 @@ function renderVoiceFields(){
     setupTransferInputs();
     return;
   }
+  // its own labelled button, not a cramped icon in the row above
+  html += '<button type="button" class="xfer-launch" onclick="vSet(\'sheet\',\'Transfer\')">⇄ &nbsp;تحويل بين الحسابات</button>';
   // flow (not for Dollar where sign is by type, but keep simple: show for all)
   html += '<div class="m-field"><label>Type</label><div class="seg">';
   html += '<button class="seg-b'+(vEntry.flow==='out'?' on red':'')+'" onclick="vSet(\'flow\',\'out\')">− Expense</button>';
