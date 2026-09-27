@@ -3383,23 +3383,37 @@ function saveTransfer(){
   loadMemory();
 }
 
-/* fonts used only to render the "hand-filled" bits of the invoice below —
-   loaded once, on demand, so a slow connection never blocks a save */
+/* fonts used only to render the "hand-filled" bits of the invoice below.
+   document.fonts.load() can resolve as a no-op if the <link> stylesheet
+   hasn't finished registering the @font-face yet (happens on a fresh,
+   slow mobile open) — silently falling back to a generic font, which is
+   why the drawn text looked "typed" instead of handwritten. document.
+   fonts.ready waits for every font actually in use, which is the real
+   signal; a timeout keeps a bad connection from blocking the save. */
 function ensureHandFonts_(cb){
-  if(window.__handFontsOK){ cb(); return; }
   try{
-    if(!window.__handFontsPromise){
-      window.__handFontsPromise = Promise.all([
-        document.fonts.load('40px "Caveat"'),
-        document.fonts.load('700 40px "Caveat"'),
-        document.fonts.load('32px "Aref Ruqaa"'),
-        document.fonts.load('600 20px "Tajawal"'),
-        document.fonts.load('700 20px "Tajawal"')
-      ]).catch(function(){});
+    if(document.fonts && document.fonts.check &&
+       document.fonts.check('700 40px "Caveat"') && document.fonts.check('32px "Aref Ruqaa"')){
+      window.__handFontsOK = true; cb(); return;
     }
-    window.__handFontsPromise.then(function(){ window.__handFontsOK = true; cb(); });
-  }catch(e){ cb(); }
+  }catch(e){}
+  var done = false;
+  function finish(){ if(done) return; done = true; window.__handFontsOK = true; cb(); }
+  try{
+    Promise.all([
+      document.fonts.load('40px "Caveat"'),
+      document.fonts.load('700 40px "Caveat"'),
+      document.fonts.load('32px "Aref Ruqaa"'),
+      document.fonts.load('600 20px "Tajawal"'),
+      document.fonts.load('700 20px "Tajawal"'),
+      document.fonts.ready
+    ]).catch(function(){}).then(finish);
+  }catch(e){ finish(); return; }
+  setTimeout(finish, 2500);   // never block a save for more than this
 }
+// warm the fonts up as soon as the app opens, so they're almost always
+// ready well before the user gets to Save
+try{ ensureHandFonts_(function(){}); }catch(e){}
 
 /* a printed invoice PAD (like the paper ones from the stationery shop) with
    the values filled in by "hand" — matches the real pad's layout: title box,
@@ -3412,7 +3426,7 @@ function buildSiwarInvoiceAsync(o, cb){
 }
 
 function buildSiwarInvoice_(o){
-  var W = 820, H = 1040;
+  var W = 820, H = 780;
   var c = document.createElement('canvas'); c.width = W; c.height = H;
   var x = c.getContext('2d');
   var ink = "#17399a";      // ballpoint-pen blue — the "handwritten" values
@@ -3498,7 +3512,7 @@ function buildSiwarInvoice_(o){
   x.beginPath(); x.moveTo(left, bottom + 120); x.lineTo(right - 95, bottom + 120); x.stroke();
 
   x.textAlign = "left"; x.font = "12px Arial"; x.fillStyle = "#b7b7bd";
-  x.fillText("فاتورة كتابية تلقائية · " + ds, left, H - 36);
+  x.fillText("فاتورة كتابية تلقائية · " + ds, left, H - 40);
 
   return c.toDataURL("image/jpeg", 0.9);
 }
