@@ -2991,6 +2991,16 @@ function renderVoiceFields(){
         });
         html += '</div></div>';
       }
+      // Photos (optional, multiple) → merged into one image → column H
+      html += '<div class="m-field"><label>Photos (optional — تقدر تختار أكتر من صورة)</label>'
+        + '<input type="file" id="v-photo" accept="image/*" multiple class="m-file">'
+        + '<div id="photoStatus" class="photo-status">'+((vEntry.photos&&vEntry.photos.length)?('✓ '+vEntry.photos.length+' صورة'):'')+'</div></div>';
+      // no paper invoice? generate one from the entry and upload it as the photo
+      html += '<div class="m-field">'
+        + '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">'
+        +   '<input type="checkbox" id="v-genInv"'+(vEntry.genInvoice!==false?' checked':'')+' style="width:18px;height:18px">'
+        +   '🧾 توليد فاتورة (لو مفيش صورة)'
+        + '</label></div>';
     }
     if(vEntry.sheet==="Siwar"){
       // Apt dropdown → column F (personal) + column E (company)
@@ -3440,7 +3450,7 @@ function buildSiwarInvoice_(o){
   // letterhead + title box (printed)
   x.textAlign = "center"; x.fillStyle = tmpl;
   x.font = "600 22px Tajawal, Arial";
-  x.fillText("سيوار", W/2, 60);
+  x.fillText(o.company || "سيوار", W/2, 60);
   x.strokeRect(W/2 - 100, 88, 200, 56);
   x.font = "700 32px Tajawal, Arial";
   x.fillText("فاتورة", W/2, 116);
@@ -3586,6 +3596,37 @@ function saveVoice(){
       setVoiceStatus("بيدمج "+imgs.length+" صور…","");
       compositeImages(imgs, function(merged){
         vEntry.photo = merged || imgs[0];
+        _finishVoiceSave();
+      });
+      return;
+    }
+  }
+
+  // ── Saraya: same as Siwar — real photos merge into one image; otherwise
+  //    a hand-filled invoice pad gets drawn and uploaded to column H ──
+  if(vEntry.sheet==="Saraya"){
+    var simgs = (vEntry.photos || []).slice();
+    if(simgs.length === 0){
+      if(vEntry.genInvoice===false){
+        _finishVoiceSave();
+        return;
+      }
+      setVoiceStatus("بيجهّز الفاتورة…","");
+      buildSiwarInvoiceAsync({
+        desc: (vEntry.description||"").trim(), amount: vEntry.amount,
+        company: "الما فيرا",
+        type: vEntry.sarayaType||"", apt: vEntry.sarayaApt||""
+      }, function(dataUrl){
+        vEntry.photo = dataUrl;
+        _finishVoiceSave();
+      });
+      return;
+    } else if(simgs.length === 1){
+      vEntry.photo = simgs[0];
+    } else {
+      setVoiceStatus("بيدمج "+simgs.length+" صور…","");
+      compositeImages(simgs, function(merged){
+        vEntry.photo = merged || simgs[0];
         _finishVoiceSave();
       });
       return;
