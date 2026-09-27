@@ -3436,7 +3436,7 @@ function buildSiwarInvoiceAsync(o, cb){
 }
 
 function buildSiwarInvoice_(o){
-  var W = 820, H = 780;
+  var W = 820, H = 700;
   var c = document.createElement('canvas'); c.width = W; c.height = H;
   var x = c.getContext('2d');
   var ink = "#17399a";      // ballpoint-pen blue — the "handwritten" values
@@ -3514,12 +3514,6 @@ function buildSiwarInvoice_(o){
   x.fillText("جنيه", left + 200, bottom + 45);
   x.font = "700 22px Tajawal, Arial";
   x.fillText("الإجمالي", (left + right) / 2 + 70, bottom + 45);
-
-  // signature line (printed label, left blank — no real signature)
-  x.textAlign = "right"; x.font = "600 19px Tajawal, Arial"; x.fillStyle = tmpl;
-  x.fillText("التوقيع :", right, bottom + 112);
-  x.strokeStyle = tmpl; x.lineWidth = 1;
-  x.beginPath(); x.moveTo(left, bottom + 120); x.lineTo(right - 95, bottom + 120); x.stroke();
 
   x.textAlign = "left"; x.font = "12px Arial"; x.fillStyle = "#b7b7bd";
   x.fillText("فاتورة كتابية تلقائية · " + ds, left, H - 40);
