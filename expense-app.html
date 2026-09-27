@@ -5,6 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Finance · Joe</title>
+<!-- handwriting-style fonts, used only to render the auto-generated Siwar invoice -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Caveat:wght@400;700&family=Tajawal:wght@500;700&display=swap" rel="stylesheet">
 <style>
 :root{
   --bg:#010204; --card:#05070F; --card2:#03050B; --line:#0F1426; --line2:#1A2138;
@@ -3379,70 +3383,124 @@ function saveTransfer(){
   loadMemory();
 }
 
-/* a compact "written invoice" card for a Siwar expense with no photo —
-   just the facts, description wraps, no empty ledger rows */
-function buildSiwarInvoice(o){
-  var d = new Date();
-  var ds = ("0"+d.getDate()).slice(-2) + " / " + ("0"+(d.getMonth()+1)).slice(-2) + " / " + d.getFullYear();
-  var amt = (Math.round((o.amount||0) * 100) / 100).toLocaleString('en-US') + " ج";
-  var what = (o.desc || o.type || "مصروف").trim();
-
-  var W = 720, PAD = 40, LH = 40;
-  var c = document.createElement('canvas');
-  var x = c.getContext('2d');
-  x.font = "22px 'Segoe UI','Tahoma',Arial";
-
-  // wrap the description to the card width
-  function wrap(t){
-    var max = W - PAD*2 - 90, words = String(t).split(/\s+/), line = "", out = [];
-    for(var i=0;i<words.length;i++){
-      var trial = line ? (line + " " + words[i]) : words[i];
-      if(x.measureText(trial).width > max && line){ out.push(line); line = words[i]; }
-      else line = trial;
+/* fonts used only to render the "hand-filled" bits of the invoice below —
+   loaded once, on demand, so a slow connection never blocks a save */
+function ensureHandFonts_(cb){
+  if(window.__handFontsOK){ cb(); return; }
+  try{
+    if(!window.__handFontsPromise){
+      window.__handFontsPromise = Promise.all([
+        document.fonts.load('40px "Caveat"'),
+        document.fonts.load('700 40px "Caveat"'),
+        document.fonts.load('32px "Aref Ruqaa"'),
+        document.fonts.load('600 20px "Tajawal"'),
+        document.fonts.load('700 20px "Tajawal"')
+      ]).catch(function(){});
     }
-    if(line) out.push(line);
-    return out.length ? out : [""];
-  }
-  var descLines = wrap(what);
-  var H = PAD*2 + LH*6 + (descLines.length-1)*30;
+    window.__handFontsPromise.then(function(){ window.__handFontsOK = true; cb(); });
+  }catch(e){ cb(); }
+}
 
-  c.width = W; c.height = H;
-  x.fillStyle = "#ffffff"; x.fillRect(0,0,W,H);
-  x.strokeStyle = "#1a1a1a"; x.lineWidth = 2; x.strokeRect(14,14,W-28,H-28);
-  x.fillStyle = "#1a1a1a"; x.direction = "rtl"; x.textBaseline = "middle";
+/* a printed invoice PAD (like the paper ones from the stationery shop) with
+   the values filled in by "hand" — matches the real pad's layout: title box,
+   date, a م/البيان/العدد/سعر الوحدة/الإجمالي table, total box, signature line */
+function buildSiwarInvoiceAsync(o, cb){
+  ensureHandFonts_(function(){
+    try{ cb(buildSiwarInvoice_(o)); }
+    catch(e){ try{ cb(buildSiwarInvoice_(o)); }catch(e2){ cb(""); } }
+  });
+}
 
-  x.textAlign = "center";
-  x.font = "bold 26px 'Segoe UI','Tahoma',Arial";
-  x.fillText("سيوار — فاتورة", W/2, PAD + 6);
-  x.strokeStyle = "#ccc"; x.beginPath(); x.moveTo(PAD, PAD+34); x.lineTo(W-PAD, PAD+34); x.stroke();
+function buildSiwarInvoice_(o){
+  var W = 820, H = 1040;
+  var c = document.createElement('canvas'); c.width = W; c.height = H;
+  var x = c.getContext('2d');
+  var ink = "#17399a";      // ballpoint-pen blue — the "handwritten" values
+  var tmpl = "#1c2340";     // the pad's printed ink
 
-  x.textAlign = "right";
-  var rx = W - PAD, y = PAD + 34 + LH;
-  x.font = "20px 'Segoe UI','Tahoma',Arial";
-  x.fillStyle = "#666"; x.fillText("التاريخ", rx, y);
-  x.fillStyle = "#1a1a1a"; x.fillText(ds, rx - 90, y);
-  y += LH;
+  x.fillStyle = "#fdfdfb"; x.fillRect(0, 0, W, H);
+  x.direction = "rtl"; x.textBaseline = "middle";
+  x.strokeStyle = tmpl; x.lineWidth = 2.5;
+  x.strokeRect(28, 28, W - 56, H - 56);
 
-  x.fillStyle = "#666"; x.fillText("الصنف", rx, y);
-  x.fillStyle = "#1a1a1a";
-  descLines.forEach(function(ln, i){ x.fillText(ln, rx - 90, y + i*30); });
-  y += LH + (descLines.length-1)*30;
+  // letterhead + title box (printed)
+  x.textAlign = "center"; x.fillStyle = tmpl;
+  x.font = "600 22px Tajawal, Arial";
+  x.fillText("سيوار", W/2, 60);
+  x.strokeRect(W/2 - 100, 88, 200, 56);
+  x.font = "700 32px Tajawal, Arial";
+  x.fillText("فاتورة", W/2, 116);
 
-  x.fillStyle = "#666"; x.fillText("المبلغ", rx, y);
-  x.fillStyle = "#1a1a1a"; x.font = "bold 22px 'Segoe UI','Tahoma',Arial"; x.fillText(amt, rx - 90, y);
-  y += LH;
+  // date — printed label, handwritten value
+  var d = new Date();
+  var ds = d.getDate() + "/" + (d.getMonth()+1) + "/" + d.getFullYear();
+  x.textAlign = "right"; x.font = "600 20px Tajawal, Arial"; x.fillStyle = tmpl;
+  x.fillText("التاريخ :", W - 55, 176);
+  x.textAlign = "left"; x.font = "40px Caveat, cursive"; x.fillStyle = ink;
+  x.fillText(ds, 55, 180);
 
+  // table (printed grid + headers, handwritten row)
+  var left = 55, right = W - 55, top = 220, rowH = 52, rows = 6;
+  var bottom = top + rowH * rows;
+  var wM = 68, wBayan = 300, wAdad = 88, wSaer = 118;
+  var b0 = right, b1 = b0 - wM, b2 = b1 - wBayan, b3 = b2 - wAdad, b4 = b3 - wSaer, b5 = left;
+
+  x.strokeStyle = tmpl; x.lineWidth = 1.6;
+  x.strokeRect(left, top, right - left, bottom - top);
+  x.beginPath();
+  x.moveTo(left, top + rowH); x.lineTo(right, top + rowH);
+  [b1, b2, b3, b4].forEach(function(vx){ x.moveTo(vx, top); x.lineTo(vx, bottom); });
+  x.stroke();
+  x.fillStyle = "rgba(23,57,154,0.07)"; x.fillRect(left, top, right - left, rowH);
+
+  var cols = [
+    { mid: (b4 + b5) / 2, head: "الإجمالي" },
+    { mid: (b3 + b4) / 2, head: "سعر الوحدة" },
+    { mid: (b2 + b3) / 2, head: "العدد" },
+    { mid: (b1 + b2) / 2, head: "البيان" },
+    { mid: (b0 + b1) / 2, head: "م" }
+  ];
+  x.textAlign = "center"; x.font = "700 19px Tajawal, Arial"; x.fillStyle = tmpl;
+  cols.forEach(function(col){ x.fillText(col.head, col.mid, top + rowH / 2); });
+
+  // one hand-filled row = the whole expense
+  var amt = (Math.round((o.amount || 0) * 100) / 100).toLocaleString("en-US");
+  var y = top + rowH + rowH / 2;
+  x.fillStyle = ink; x.textAlign = "center";
+  x.font = "36px Caveat, cursive";
+  x.fillText("1", cols[4].mid, y);                                  // م
+  x.font = "30px 'Aref Ruqaa', Caveat, cursive";
+  x.fillText(o.desc || o.type || "مصروف", cols[3].mid, y);          // البيان
+  x.font = "36px Caveat, cursive";
+  x.fillText("1", cols[2].mid, y);                                  // العدد
+  x.fillText(amt, cols[1].mid, y);                                  // سعر الوحدة
+  x.fillText(amt, cols[0].mid, y);                                  // الإجمالي
   if(o.type){
-    x.font = "20px 'Segoe UI','Tahoma',Arial";
-    x.fillStyle = "#666"; x.fillText("النوع", rx, y);
-    x.fillStyle = "#1a1a1a"; x.fillText(o.type + (o.apt ? (" · " + o.apt) : ""), rx - 90, y);
-    y += LH;
+    x.font = "15px Tajawal, Arial"; x.fillStyle = "#7a7a86";
+    x.fillText(o.type + (o.apt ? (" · " + o.apt) : ""), cols[3].mid, y + 24);
+    x.fillStyle = ink;
   }
 
-  x.textAlign = "center"; x.font = "15px 'Segoe UI','Tahoma',Arial"; x.fillStyle = "#999";
-  x.fillText("فاتورة كتابية — بدون إيصال ورقي", W/2, H - PAD + 4);
+  // total box (printed label + box, handwritten value)
+  x.strokeStyle = tmpl; x.lineWidth = 1.6;
+  x.strokeRect(left, bottom + 18, 170, 52);
+  x.font = "34px Caveat, cursive"; x.fillStyle = ink; x.textAlign = "center";
+  x.fillText(amt, left + 85, bottom + 45);
+  x.font = "600 18px Tajawal, Arial"; x.fillStyle = tmpl;
+  x.fillText("جنيه", left + 200, bottom + 45);
+  x.font = "700 22px Tajawal, Arial";
+  x.fillText("الإجمالي", (left + right) / 2 + 70, bottom + 45);
 
-  return c.toDataURL('image/jpeg', 0.9);
+  // signature line (printed label, left blank — no real signature)
+  x.textAlign = "right"; x.font = "600 19px Tajawal, Arial"; x.fillStyle = tmpl;
+  x.fillText("التوقيع :", right, bottom + 112);
+  x.strokeStyle = tmpl; x.lineWidth = 1;
+  x.beginPath(); x.moveTo(left, bottom + 120); x.lineTo(right - 95, bottom + 120); x.stroke();
+
+  x.textAlign = "left"; x.font = "12px Arial"; x.fillStyle = "#b7b7bd";
+  x.fillText("فاتورة كتابية تلقائية · " + ds, left, H - 36);
+
+  return c.toDataURL("image/jpeg", 0.9);
 }
 
 /* stack several images into one tall image → one Drive file, one cell */
@@ -3490,8 +3548,8 @@ function saveVoice(){
   var gi=document.getElementById('v-genInv'); if(gi) vEntry.genInvoice=gi.checked;
   if(!vEntry.amount){ alert("Enter an amount."); return; }
 
-  // ── Siwar: real photos merge into one image; otherwise column G gets the
-  //    written-invoice line as plain text ──
+  // ── Siwar: real photos merge into one image; otherwise a hand-filled
+  //    invoice pad gets drawn and uploaded in its place ──
   if(vEntry.sheet==="Siwar"){
     var imgs = (vEntry.photos || []).slice();
     if(imgs.length === 0){
@@ -3499,10 +3557,15 @@ function saveVoice(){
         alert("مصروف Siwar لازم فاتورة — ارفع صورة أو فعّل «توليد فاتورة».");
         return;
       }
-      vEntry.photo = buildSiwarInvoice({
+      setVoiceStatus("بيجهّز الفاتورة…","");
+      buildSiwarInvoiceAsync({
         desc: (vEntry.description||"").trim(), amount: vEntry.amount,
         type: vEntry.expenseType||"", apt: vEntry.apt||""
+      }, function(dataUrl){
+        vEntry.photo = dataUrl;
+        _finishVoiceSave();
       });
+      return;
     } else if(imgs.length === 1){
       vEntry.photo = imgs[0];
     } else {
