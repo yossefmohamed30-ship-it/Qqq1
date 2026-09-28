@@ -3272,7 +3272,8 @@ function vSet(key,val){
    no change:
      EGP → $     Cash −EGP (type "Dollar Deposit")   + Dollar +USD ("Transfer In")
      $ → EGP     Dollar −USD ("Transfer Out")        + Cash  +EGP (type "Dollar Withdrawal")
-     EGP → EGP   Cash −EGP (type "Transfer=><to>")   + Cash  +EGP (blank type)
+     EGP → EGP   ONE row: Cash −EGP (type "Transfer=><to>") — the sheet
+                 itself credits <to> from that type, a 2nd row would double it
    The rate field is only a helper — it fills whichever of EGP/USD you
    left blank; both numbers still get saved as real figures. */
 function xferRound2(n){ return Math.round((Number(n)||0)*100)/100; }
@@ -3375,8 +3376,6 @@ function saveTransfer(){
   } else {
     legs.push({ sheet:"Cash", amount:-egp, account:from, expenseType:"Transfer=>"+to,
                 description:"⇄ Transfer → "+to });
-    legs.push({ sheet:"Cash", amount:+egp, account:to, expenseType:"",
-                description:"⇄ From "+from });
   }
 
   var base = Date.now();
