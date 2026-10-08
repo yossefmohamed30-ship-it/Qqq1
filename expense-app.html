@@ -1186,6 +1186,25 @@ textarea.field{resize:none;min-height:54px;}
 .loan-amt .arr{color:var(--muted);font-weight:400;margin-left:4px;}
 .loan-back{font-size:12px;color:var(--green);margin-bottom:10px;cursor:pointer;}
 .loan-item{display:flex;align-items:center;justify-content:space-between;padding:11px 14px;border-radius:12px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);margin-bottom:6px;}
+.rc-tick{position:absolute;top:7px;right:7px;width:24px;height:24px;border-radius:50%;background:rgba(61,214,106,.12);border:1px solid rgba(61,214,106,.35);color:var(--green2);font-size:12px;font-weight:800;cursor:pointer;display:flex;align-items:center;justify-content:center;padding:0;z-index:3;}
+.rc-card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.07);border-radius:16px;padding:14px 16px;margin-bottom:10px;}
+.rc-top{display:flex;justify-content:space-between;align-items:baseline;gap:8px;}
+.rc-name{font-size:14px;font-weight:800;color:var(--txt);}
+.rc-comp{font-size:13px;font-weight:700;color:var(--muted);direction:rtl;}
+.rc-last{font-size:11px;color:var(--muted);margin-top:4px;direction:rtl;text-align:right;}
+.rc-in{width:100%;box-sizing:border-box;margin-top:10px;background:rgba(255,255,255,.05);border:1px solid rgba(255,255,255,.1);border-radius:12px;padding:11px 12px;color:var(--txt);font-size:15px;font-weight:700;direction:rtl;}
+.rc-diff{font-size:12px;font-weight:800;min-height:16px;margin-top:8px;direction:rtl;text-align:right;}
+.rc-diff.ok{color:var(--green2);}
+.rc-diff.bad{color:var(--red);}
+.rc-btns{display:flex;gap:8px;margin-top:8px;}
+.rc-btn{flex:1;padding:10px;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.05);color:var(--txt);font-weight:700;font-size:12px;cursor:pointer;}
+.rc-btn.pri{background:rgba(61,214,106,.15);border-color:rgba(61,214,106,.4);color:var(--green2);}
+.rc-btn:disabled{opacity:.35;cursor:default;}
+.rc-warn{background:rgba(255,216,107,.1);border:1px solid rgba(255,216,107,.35);color:var(--yellow);border-radius:12px;padding:10px 12px;font-size:12px;margin-bottom:10px;direction:rtl;text-align:right;}
+.rc-hint{font-size:11px;color:var(--muted);margin-bottom:12px;line-height:1.6;direction:rtl;text-align:right;}
+.rc-h{display:flex;justify-content:space-between;align-items:center;padding:9px 12px;border-radius:10px;background:rgba(255,255,255,.02);border:1px solid rgba(255,255,255,.05);margin-bottom:5px;font-size:12px;color:var(--txt);}
+.rc-h small{color:var(--muted);}
+.rc-sec{font-size:10px;letter-spacing:1.2px;text-transform:uppercase;color:var(--muted);margin:16px 0 8px;}
 .li-l{display:flex;align-items:center;gap:8px;}
 .li-tag{font-size:9px;font-weight:700;letter-spacing:.5px;text-transform:uppercase;padding:2px 7px;border-radius:6px;}
 .li-tag.out{background:rgba(240,143,166,.14);color:var(--red);}
@@ -1400,8 +1419,8 @@ body.day .burger-btn{background:rgba(255,255,255,.7);}
       <button class="refresh-btn" id="balrefresh" onclick="loadBalances()">⟳</button>
     </div>
     <div class="balgrid">
-      <div class="balcard"><div class="balname">Insta / QNB</div><div class="balval" id="b-insta">—</div></div>
-      <div class="balcard"><div class="balname">Cash</div><div class="balval" id="b-cash">—</div></div>
+      <div class="balcard"><div class="balname">Insta / QNB</div><div class="balval" id="b-insta">—</div><button class="rc-tick" onclick="openRecon('insta')" title="راجع الرصيد">✓</button></div>
+      <div class="balcard"><div class="balname">Cash</div><div class="balval" id="b-cash">—</div><button class="rc-tick" onclick="openRecon('cash')" title="راجع الرصيد">✓</button></div>
       <div class="balcard"><div class="balname">VF Visa</div><div class="balval" id="b-vf">—</div></div>
       <div class="balcard vm-card" id="vmCard" onclick="toggleVisaMisr()">
         <div class="balname">Visa Misr <span class="vm-tag" id="vmTag">Dad</span></div>
@@ -1426,6 +1445,22 @@ body.day .burger-btn{background:rgba(255,255,255,.7);}
           </div>
           <button class="vm-popup-close" onclick="closeVmPopup()">Done</button>
         </div>
+      </div>
+    </div>
+
+    <!-- RECONCILE POPUP (Insta / Cash) -->
+    <div class="vm-popup" id="rcPopup" onclick="closeRecon()">
+      <div class="vm-popup-card" onclick="event.stopPropagation()" style="max-width:320px">
+        <div class="vm-popup-title">مراجعة · <span id="rcName">Insta</span></div>
+        <div class="rc-comp" id="rcComp" style="margin:12px 0 2px"></div>
+        <div class="rc-last" id="rcLast"></div>
+        <input class="rc-in" id="rcIn" type="number" inputmode="decimal" step="any" placeholder="الرصيد الفعلي من البنك" oninput="rcDiff()">
+        <div class="rc-diff" id="rcDiffTxt"></div>
+        <div class="rc-btns">
+          <button class="rc-btn" id="rcOk" onclick="rcSave(0)" disabled>تأكيد</button>
+          <button class="rc-btn pri" id="rcClose" onclick="rcSave(1)" disabled>اقفل الفرق</button>
+        </div>
+        <button class="vm-popup-close" onclick="closeRecon()" style="margin-top:12px">إلغاء</button>
       </div>
     </div>
 
@@ -2020,13 +2055,14 @@ const DOLLAR_PAYERS = ["Binance","Redotpay","Kast","Dollar cash","Phantom","Qnb 
 const SIWAR_APTS = [
   "Orabi ( DT-1 )","Alia Khan ( DT-3 )","OLD Dokki ( DK-1 )","Dokki - Duplix ( DK-2 )",
   "Sukkar Khan","Mamco","Othman Tower","Ahmed Heshmat 1","Villa Dream Land",
-  "Rehab Sunny Khan","Stone ( TA - 1 )","Stone Pool ( TA - 2 )"
+  "Rehab Sunny Khan","Stone ( TA - 1 )","Stone Pool ( TA - 2 )","Office","Stone 29"
 ];
 const SIWAR_TYPES = [
   "Laundry","Utilities","Secuirity","Maintenance","Apartment supplies","Guest Gifts",
   "Cleaning Material","Petty cash (operation)","other","housekeeping","Uber","Upselling",
   "Devices","Transporation","Utilities : electricity","Utilities : Internet",
-  "Utilities : Water","Utilities : Gas","Outsource","Subscription - Fees","Tips"
+  "Utilities : Water","Utilities : Gas","Outsource","Subscription - Fees","Tips",
+  "Petty cash","Fess","Rent","Profit","salaries"
 ];
 
 const EXPENSE_TYPES = [
@@ -4453,6 +4489,82 @@ function renderStBanner(){
 }
 
 /* === SBAL MODAL === */
+
+/* ============ RECONCILE — مراجعة رصيد Insta و Cash ============ */
+var RECON = null, RC_KEY = null;
+
+function rcFmt(n){
+  n = Number(n) || 0;
+  return '\u2066' + n.toLocaleString('en-US',{minimumFractionDigits:0,maximumFractionDigits:2}) + ' EGP\u2069';
+}
+function rcAcct(key){
+  var l = (RECON && RECON.accounts) || [];
+  for(var i=0;i<l.length;i++) if(l[i].key === key) return l[i];
+  return null;
+}
+function openRecon(key){
+  RC_KEY = key;
+  var names = {insta:'Insta', cash:'Cash'};
+  document.getElementById('rcName').textContent = names[key] || key;
+  document.getElementById('rcIn').value = '';
+  document.getElementById('rcComp').textContent = '…';
+  document.getElementById('rcLast').textContent = '';
+  rcDiff();
+  document.getElementById('rcPopup').classList.add('active');
+  jsonpCall({action:'reconlist'}, function(res){
+    if(!res || res.status !== 'ok'){ document.getElementById('rcComp').textContent = '⚠️ مش قادر أقرا الشيت'; return; }
+    RECON = res; rcRender();
+  }, function(){ document.getElementById('rcComp').textContent = '⚠️ مفيش اتصال'; });
+}
+function closeRecon(){
+  document.getElementById('rcPopup').classList.remove('active');
+}
+function rcRender(){
+  var a = rcAcct(RC_KEY);
+  if(!a) return;
+  var pend = 0;
+  try{ pend = ledgerGet().filter(function(r){ return ledgerState(r) !== 'done'; }).length; }catch(e){}
+  document.getElementById('rcComp').textContent = 'الشيت: ' + (a.computed === null ? '—' : rcFmt(a.computed));
+  var last = a.last
+    ? ('آخر مراجعة ' + a.last.date + ' · فرق ' + rcFmt(a.last.diff) + (a.last.closed ? ' (اتقفل)' : ''))
+    : 'لسه ماتراجعش';
+  if(a.checks > 1) last += ' · انحراف الشهر ' + rcFmt(a.monthDrift);
+  if(pend) last += ' · ⏳ فيه ' + pend + ' معاملة لسه ماوصلتش الشيت، استنى شوية';
+  document.getElementById('rcLast').textContent = last;
+  rcDiff();
+}
+function rcDiff(){
+  var a = rcAcct(RC_KEY);
+  var v = document.getElementById('rcIn').value;
+  var d = document.getElementById('rcDiffTxt'), ok = document.getElementById('rcOk'), cl = document.getElementById('rcClose');
+  if(!a || a.computed === null || v === '' || isNaN(Number(v))){
+    d.textContent = ''; d.className = 'rc-diff'; ok.disabled = true; cl.disabled = true; return;
+  }
+  var diff = Math.round((Number(v) - a.computed) * 100) / 100;
+  ok.disabled = false;
+  if(Math.abs(diff) < 0.005){
+    d.textContent = '✓ مطابق'; d.className = 'rc-diff ok'; cl.disabled = true;
+  } else {
+    d.textContent = (diff > 0 ? '+' : '') + rcFmt(diff) + (diff < 0 ? ' — الفعلي أقل من الشيت (مصروف ناقص تسجيله)' : ' — الفعلي أكتر من الشيت');
+    d.className = 'rc-diff bad'; cl.disabled = false;
+  }
+}
+function rcSave(close){
+  var a = rcAcct(RC_KEY), v = document.getElementById('rcIn').value;
+  if(!a || v === '' || isNaN(Number(v))) return;
+  document.getElementById('rcOk').disabled = true; document.getElementById('rcClose').disabled = true;
+  jsonpCall({action:'reconsave', account:RC_KEY, actual:v, closed:close ? 1 : 0}, function(res){
+    if(!res || res.status !== 'ok'){ toast('⚠️ ' + ((res && res.message) || 'Failed')); rcDiff(); return; }
+    var diff = Number(res.diff) || 0;
+    if(close && Math.abs(diff) >= 0.005){
+      saveToFirebase({sheet:'Cash', amount:diff, account:a.label, description:'تسوية مراجعة', expenseType:'Lost',
+        dollarType:'', dollarPayer:'', sarayaType:'', sarayaApt:'', paidBy:'', apt:'', photo:''});
+    }
+    toast('✓ ' + a.label + ' — ' + (Math.abs(diff) < 0.005 ? 'مطابق' : ('فرق ' + rcFmt(diff))) + (res.baseline ? ' (نقطة بداية)' : ''));
+    closeRecon();
+    try{ setTimeout(function(){ loadBalances(true); }, 4000); }catch(e){}
+  }, function(){ toast('⚠️ مفيش اتصال'); rcDiff(); });
+}
 
 /* ============ LOANS ============ */
 var LOANS_DATA = null;
