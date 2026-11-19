@@ -5,7 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <title>Finance · Joe</title>
-<!-- handwriting-style fonts, used only to render the auto-generated Siwar invoice -->
+<!-- handwriting-style fonts, used only to render the auto-generated invoice -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Aref+Ruqaa:wght@400;700&family=Caveat:wght@400;700&family=Tajawal:wght@500;700&display=swap" rel="stylesheet">
@@ -930,7 +930,7 @@ body.day .scan-core{background:radial-gradient(circle at 40% 35%, #fff, #e6f0fb)
 .modal-overlay{display:none;position:fixed;inset:0;z-index:80;background:rgba(0,0,0,.72);align-items:flex-end;justify-content:center;backdrop-filter:blur(10px);}
 .modal-overlay.active{display:flex;animation:ovin .3s ease;}
 @keyframes ovin{from{opacity:0;}to{opacity:1;}}
-.modal{width:100%;max-width:520px;background:rgba(11,16,32,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line2);border-radius:24px 24px 0 0;padding:22px 20px calc(24px + env(safe-area-inset-bottom));animation:modalup .42s cubic-bezier(.2,.9,.3,1.04);}
+.modal{width:100%;max-width:520px;background:rgba(11,16,32,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid var(--line2);border-radius:24px 24px 0 0;padding:22px 20px calc(24px + env(safe-area-inset-bottom));animation:modalup .42s cubic-bezier(.2,.9,.3,1.04);max-height:92vh;max-height:92dvh;overflow-y:auto;-webkit-overflow-scrolling:touch;overscroll-behavior:contain;box-sizing:border-box;}
 @keyframes modalup{from{transform:translateY(60px);opacity:0;}to{transform:none;opacity:1;}}
 .modal-head{font-size:16px;font-weight:700;margin-bottom:18px;color:var(--txt);}
 .m-field{margin-bottom:13px;}
@@ -941,7 +941,7 @@ body.day .scan-core{background:radial-gradient(circle at 40% 35%, #fff, #e6f0fb)
 .photo-status{font-size:11px;color:var(--green);margin-top:6px;min-height:14px;}
 .m-field input,.m-field select{width:100%;background:var(--card2);border:1px solid var(--line2);border-radius:12px;padding:12px 14px;color:var(--txt);font-family:var(--mono);font-size:14px;outline:none;transition:.25s;}
 .m-field input:focus,.m-field select:focus{border-color:rgba(127,201,232,.45);box-shadow:0 0 0 3px rgba(127,201,232,.05);}
-.modal-actions{display:flex;gap:10px;margin-top:20px;}
+.modal-actions{display:flex;gap:10px;margin-top:20px;position:sticky;bottom:0;padding:12px 0 2px;background:linear-gradient(to bottom,rgba(11,16,32,0),rgba(11,16,32,.96) 28%);z-index:2;}
 .m-save{flex:1;background:rgba(127,201,232,.1);border:1px solid rgba(127,201,232,.4);color:var(--green);border-radius:14px;padding:15px;font-family:var(--mono);font-size:14px;font-weight:700;cursor:pointer;transition:all .25s cubic-bezier(.2,.8,.3,1);}
 .m-save:hover{background:rgba(127,201,232,.16);}
 .m-save:active{transform:scale(.97);}
@@ -1566,7 +1566,6 @@ body.day .burger-btn{background:rgba(255,255,255,.7);}
       <div class="htabs">
         <button class="htab active" data-sheet="Cash" onclick="switchHistTab(this)">Cash</button>
         <button class="htab" data-sheet="Dollar" onclick="switchHistTab(this)">Dollar</button>
-        <button class="htab" data-sheet="Siwar" onclick="switchHistTab(this)">Siwar</button>
         <button class="htab" data-sheet="Saraya" onclick="switchHistTab(this)">Alma-vera</button>
       </div>
       <div class="rbtns">
@@ -2038,32 +2037,18 @@ function loadBalances(force){
 const ACCOUNTS = ["Insta","Qnb","Cash","VF","Visa-Misr","Visa-Misr 2"];
 /* الاسم اللي بيتعرض بس. المفتاح "Saraya" زي ما هو جوّه الكود،
    والـ Apps Script بيوصّله لتاب Alma-vera. */
-const SHEET_LABEL = {Cash:"Cash", Siwar:"Siwar", Saraya:"Alma-vera", Dollar:"Dollar", Transfer:"⇄"};
+const SHEET_LABEL = {Cash:"Cash", Saraya:"Alma-vera", Dollar:"Dollar", Transfer:"⇄"};
 function shLabel(s){ return SHEET_LABEL[s] || s; }
 const SARAYA_TYPES = ["owner","Opex","Admin","Maintenance","income"];
 const SARAYA_APTS  = ["stone/Private pool","Alma viola","Stone 350"];
 const SARAYA_PAID_BY = ["Alma","Me"]; // Admin-only: who actually paid — Alma unless picked otherwise
 /* ⇄ Transfer between accounts — the EGP side is any personal account
-   (business books Siwar/Saraya are deliberately excluded). Records TWO
+   (the Alma-vera business book is deliberately excluded). Records TWO
    normal rows: one on Cash, one on Dollar (or two on Cash for EGP→EGP),
    so the existing Firebase→Sheet sync handles them with no backend change. */
 const XFER_EGP_ACCTS = ["Qnb","Insta","Cash","VF","Visa-Misr","Visa-Misr 2"];
 
-/* ===== SIWAR (company) ===== */
 const DOLLAR_PAYERS = ["Binance","Redotpay","Kast","Dollar cash","Phantom","Qnb dollar"];
-
-const SIWAR_APTS = [
-  "Orabi ( DT-1 )","Alia Khan ( DT-3 )","OLD Dokki ( DK-1 )","Dokki - Duplix ( DK-2 )",
-  "Sukkar Khan","Mamco","Othman Tower","Ahmed Heshmat 1","Villa Dream Land",
-  "Rehab Sunny Khan","Stone ( TA - 1 )","Stone Pool ( TA - 2 )","Office","Stone 29"
-];
-const SIWAR_TYPES = [
-  "Laundry","Utilities","Secuirity","Maintenance","Apartment supplies","Guest Gifts",
-  "Cleaning Material","Petty cash (operation)","other","housekeeping","Uber","Upselling",
-  "Devices","Transporation","Utilities : electricity","Utilities : Internet",
-  "Utilities : Water","Utilities : Gas","Outsource","Subscription - Fees","Tips",
-  "Petty cash","Fess","Rent","Profit","salaries"
-];
 
 const EXPENSE_TYPES = [
   "Paycheck","Bonus","Indriver","Parental Support","Side Income","Indriver fees",
@@ -2078,7 +2063,7 @@ const EXPENSE_TYPES = [
 
 const DOLLAR_TYPES = ["Transfer In","Transfer Out","Profit","loss","Loan","Repaid"];
 
-const ACCENT = {Qnb:"#E8C547",Insta:"#9B8AD4",Cash:"#6FA8DC",VF:"#E5564E","Visa-Misr":"#3DD66A","Visa-Misr 2":"#2E7DD6",Siwar:"#E5564E"};
+const ACCENT = {Qnb:"#E8C547",Insta:"#9B8AD4",Cash:"#6FA8DC",VF:"#E5564E","Visa-Misr":"#3DD66A","Visa-Misr 2":"#2E7DD6"};
 
 /* ============ STATE ============ */
 let entry = {};
@@ -2720,14 +2705,13 @@ function nextVoiceCard(){
 var vEntry = {};
 function openVoiceModal(p, heard, remaining){
   vEntry = {
-    sheet: (["Cash","Siwar","Saraya","Dollar","Transfer"].indexOf(p.sheet)!==-1)?p.sheet:"Cash",
+    sheet: (["Cash","Saraya","Dollar","Transfer"].indexOf(p.sheet)!==-1)?p.sheet:"Cash",
     flow: (p.flow==="in")?"in":"out",
     amount: Math.abs(Number(p.amount)||0),
     account: p.account||"",
     description: p.description||"",
     expenseType: p.expenseType||"",
     dollarType: p.dollarType||"",
-    apt: p.apt||"",
     photo: "",
     photos: [],
     loanPerson: p.loanPerson||"",
@@ -2940,7 +2924,7 @@ function renderVoiceFields(){
   var html="";
   // sheet selector
   html += '<div class="m-field"><label>Account book</label><div class="seg" id="vSeg-sheet">';
-  ["Cash","Siwar","Saraya","Dollar"].forEach(function(s){
+  ["Cash","Saraya","Dollar"].forEach(function(s){
     html += '<button class="seg-b'+(vEntry.sheet===s?' on':'')+'" onclick="vSet(\'sheet\',\''+s+'\')">'+shLabel(s)+'</button>';
   });
   html += '</div></div>';
@@ -3038,37 +3022,9 @@ function renderVoiceFields(){
         +   '🧾 توليد فاتورة (لو مفيش صورة)'
         + '</label></div>';
     }
-    if(vEntry.sheet==="Siwar"){
-      // Apt dropdown → column F (personal) + column E (company)
-      html += '<div class="m-field"><label>Apt</label>'
-        + '<select id="v-siwarApt" class="m-select">'
-        + '<option value="">Choose apartment…</option>';
-      SIWAR_APTS.forEach(function(a){
-        html += '<option value="'+esc(a)+'"'+(vEntry.apt===a?' selected':'')+'>'+esc(a)+'</option>';
-      });
-      html += '</select></div>';
-      // Expense Type dropdown → company sheet column F
-      html += '<div class="m-field"><label>Expense Type</label>'
-        + '<select id="v-siwarType" class="m-select">'
-        + '<option value="">Choose type…</option>';
-      SIWAR_TYPES.forEach(function(t){
-        html += '<option value="'+esc(t)+'"'+(vEntry.expenseType===t?' selected':'')+'>'+esc(t)+'</option>';
-      });
-      html += '</select></div>';
-      // Photos (optional, multiple) → merged into one image → company sheet column G
-      html += '<div class="m-field"><label>Photos (optional — تقدر تختار أكتر من صورة)</label>'
-        + '<input type="file" id="v-photo" accept="image/*" multiple class="m-file">'
-        + '<div id="photoStatus" class="photo-status">'+((vEntry.photos&&vEntry.photos.length)?('✓ '+vEntry.photos.length+' صورة'):'')+'</div></div>';
-      // no paper invoice? generate one from the entry and upload it as the photo
-      html += '<div class="m-field">'
-        + '<label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-weight:600">'
-        +   '<input type="checkbox" id="v-genInv"'+(vEntry.genInvoice!==false?' checked':'')+' style="width:18px;height:18px">'
-        +   '🧾 توليد فاتورة (لو مفيش صورة)'
-        + '</label></div>';
-    }
   }
   f.innerHTML=html;
-  // photo picker (Siwar) → compress each; multiple are merged into one image on save
+  // photo picker → compress each; multiple are merged into one image on save
   var ph=document.getElementById('v-photo');
   if(ph){
     ph.onchange=function(){
@@ -3095,7 +3051,7 @@ function renderVoiceFields(){
     var st0=document.getElementById('photoStatus');
     if(st0 && vEntry.photos && vEntry.photos.length){ st0.textContent="✓ "+vEntry.photos.length+" صورة"; }
   }
-  // generate-invoice toggle (Siwar)
+  // generate-invoice toggle
   var gi=document.getElementById('v-genInv');
   if(gi) gi.onchange=function(){ vEntry.genInvoice=this.checked; };
 
@@ -3418,7 +3374,7 @@ function saveTransfer(){
   legs.forEach(function(lg, i){
     var full = Object.assign({
       sheet:"", amount:0, account:"", description:"", expenseType:"",
-      dollarType:"", dollarPayer:"", sarayaType:"", sarayaApt:"", paidBy:"", apt:"", photo:""
+      dollarType:"", dollarPayer:"", sarayaType:"", sarayaApt:"", paidBy:"", photo:""
     }, lg);
     saveToFirebase(full, base + i);
   });
@@ -3463,14 +3419,14 @@ try{ ensureHandFonts_(function(){}); }catch(e){}
 /* a printed invoice PAD (like the paper ones from the stationery shop) with
    the values filled in by "hand" — matches the real pad's layout: title box,
    date, a م/البيان/العدد/سعر الوحدة/الإجمالي table, total box, signature line */
-function buildSiwarInvoiceAsync(o, cb){
+function buildInvoiceAsync(o, cb){
   ensureHandFonts_(function(){
-    try{ cb(buildSiwarInvoice_(o)); }
-    catch(e){ try{ cb(buildSiwarInvoice_(o)); }catch(e2){ cb(""); } }
+    try{ cb(buildInvoice_(o)); }
+    catch(e){ try{ cb(buildInvoice_(o)); }catch(e2){ cb(""); } }
   });
 }
 
-function buildSiwarInvoice_(o){
+function buildInvoice_(o){
   var W = 820, H = 700;
   var c = document.createElement('canvas'); c.width = W; c.height = H;
   var x = c.getContext('2d');
@@ -3485,7 +3441,7 @@ function buildSiwarInvoice_(o){
   // letterhead + title box (printed)
   x.textAlign = "center"; x.fillStyle = tmpl;
   x.font = "600 22px Tajawal, Arial";
-  x.fillText(o.company || "سيوار", W/2, 60);
+  x.fillText(o.company || "الما فيرا", W/2, 60);
   x.strokeRect(W/2 - 100, 88, 200, 56);
   x.font = "700 32px Tajawal, Arial";
   x.fillText("فاتورة", W/2, 116);
@@ -3596,43 +3552,11 @@ function saveVoice(){
   var a=document.getElementById('v-amount'); if(a) vEntry.amount=Math.abs(parseFloat(a.value)||0);
   var d=document.getElementById('v-description'); if(d) vEntry.description=d.value;
   var dt=document.getElementById('v-dollarType'); if(dt) vEntry.dollarType=dt.value;
-  var sa=document.getElementById('v-siwarApt'); if(sa) vEntry.apt=sa.value;
-  var st=document.getElementById('v-siwarType'); if(st) vEntry.expenseType=st.value;
   var gi=document.getElementById('v-genInv'); if(gi) vEntry.genInvoice=gi.checked;
   if(!vEntry.amount){ alert("Enter an amount."); return; }
 
-  // ── Siwar: real photos merge into one image; otherwise a hand-filled
-  //    invoice pad gets drawn and uploaded in its place ──
-  if(vEntry.sheet==="Siwar"){
-    var imgs = (vEntry.photos || []).slice();
-    if(imgs.length === 0){
-      if(!vEntry.genInvoice){
-        alert("مصروف Siwar لازم فاتورة — ارفع صورة أو فعّل «توليد فاتورة».");
-        return;
-      }
-      setVoiceStatus("بيجهّز الفاتورة…","");
-      buildSiwarInvoiceAsync({
-        desc: (vEntry.description||"").trim(), amount: vEntry.amount,
-        type: vEntry.expenseType||"", apt: vEntry.apt||""
-      }, function(dataUrl){
-        vEntry.photo = dataUrl;
-        _finishVoiceSave();
-      });
-      return;
-    } else if(imgs.length === 1){
-      vEntry.photo = imgs[0];
-    } else {
-      setVoiceStatus("بيدمج "+imgs.length+" صور…","");
-      compositeImages(imgs, function(merged){
-        vEntry.photo = merged || imgs[0];
-        _finishVoiceSave();
-      });
-      return;
-    }
-  }
-
-  // ── Saraya: same as Siwar — real photos merge into one image; otherwise
-  //    a hand-filled invoice pad gets drawn and uploaded to column H ──
+  // ── Alma-vera: real photos merge into one image; otherwise a hand-filled
+  //    invoice pad gets drawn and uploaded to the Photo column ──
   if(vEntry.sheet==="Saraya"){
     var simgs = (vEntry.photos || []).slice();
     if(simgs.length === 0){
@@ -3641,7 +3565,7 @@ function saveVoice(){
         return;
       }
       setVoiceStatus("بيجهّز الفاتورة…","");
-      buildSiwarInvoiceAsync({
+      buildInvoiceAsync({
         desc: (vEntry.description||"").trim(), amount: vEntry.amount,
         company: "الما فيرا",
         type: vEntry.sarayaType||"", apt: vEntry.sarayaApt||""
@@ -3669,15 +3593,14 @@ function saveVoice(){
     var payload = {
       sheet: vEntry.sheet,
       amount: signed,
-      account: vEntry.account || (vEntry.sheet==="Siwar"?"Siwar":(vEntry.sheet==="Saraya"?"Saraya":(vEntry.sheet==="Cash"?"Cash":""))),
+      account: vEntry.account || (vEntry.sheet==="Saraya"?"Saraya":(vEntry.sheet==="Cash"?"Cash":"")),
       description: vEntry.description||"",
-      expenseType: (vEntry.sheet==="Cash"||vEntry.sheet==="Siwar")?(vEntry.expenseType||""):"",
+      expenseType: (vEntry.sheet==="Cash")?(vEntry.expenseType||""):"",
       dollarType: vEntry.sheet==="Dollar"?(vEntry.dollarType||"Transfer In"):"",
       dollarPayer: vEntry.sheet==="Dollar"?(vEntry.dollarPayer||""):"",
       sarayaType: vEntry.sheet==="Saraya"?(vEntry.sarayaType||"owner"):"",
       sarayaApt:  vEntry.sheet==="Saraya"?(vEntry.sarayaApt||"stone/Private pool"):"",
       paidBy: (vEntry.sheet==="Saraya" && vEntry.sarayaType==="Admin")?(vEntry.paidBy||"Alma"):"",
-      apt: vEntry.sheet==="Siwar"?(vEntry.apt||""):"",
       photo: vEntry.photo||""
     };
     saveToFirebase(payload);
@@ -3693,7 +3616,7 @@ function saveVoice(){
 }
 
 /* ============ SMART MEMORY ============ */
-var MEM = { Cash:{}, Siwar:{}, Dollar:{}, CashDescs:[], SiwarDescs:[], DollarDescs:[] };
+var MEM = { Cash:{}, Dollar:{}, CashDescs:[], DollarDescs:[] };
 function loadMemory(){
   jsonpCall({action:"memory"}, function(res){
     if(res && res.status==="ok") MEM = res;
@@ -3701,7 +3624,7 @@ function loadMemory(){
 }
 
 /* ============ HISTORY (last 7 days) + EDIT/DELETE ============ */
-var histData = { Cash:[], Dollar:[], Siwar:[], Saraya:[] };
+var histData = { Cash:[], Dollar:[], Saraya:[] };
 var histCurrent = "Cash";
 var histDay = null;
 var histRange = 7;
@@ -3737,7 +3660,7 @@ function openHistory(){
   // 2. Refresh from Apps Script in background
   jsonpCall({action:"recent"}, function(res){
     if(res && res.status==="ok"){
-      var data = { Cash:res.Cash||[], Dollar:res.Dollar||[], Siwar:res.Siwar||[], Saraya:res.Saraya||[] };
+      var data = { Cash:res.Cash||[], Dollar:res.Dollar||[], Saraya:res.Saraya||[] };
       fbSet("/joe/histcache", data); // cache in Firebase
       histData = data;
       renderHist();
@@ -3850,10 +3773,6 @@ function openEdit(sheet, item){
       html += selectField('sarayaType','Type', SARAYA_TYPES, item.sarayaType||"owner");
       html += selectField('sarayaApt','Apt', SARAYA_APTS, item.sarayaApt||"stone/Private pool");
     }
-    if(sheet==="Siwar"){
-      html += selectField('apt','Apt', SIWAR_APTS, item.apt||"");
-      html += selectField('expenseType','Expense Type', SIWAR_TYPES, item.expenseType||"");
-    }
   }
   f.innerHTML = html;
   document.getElementById('editModal').classList.add('active');
@@ -3879,7 +3798,6 @@ function saveEdit(){
   var dtEl=document.getElementById('e-dollarType'); if(dtEl) p.dollarType=dtEl.value;
   var stEl=document.getElementById('e-sarayaType'); if(stEl) p.sarayaType=stEl.value;
   var saEl=document.getElementById('e-sarayaApt'); if(saEl) p.sarayaApt=saEl.value;
-  var aptEl=document.getElementById('e-apt'); if(aptEl) p.apt=aptEl.value;
   var saveBtn=document.querySelector('.m-save'); saveBtn.textContent="Saving…"; saveBtn.disabled=true;
   jsonpCall(p, function(res){
     saveBtn.textContent="Save"; saveBtn.disabled=false;
@@ -3907,8 +3825,6 @@ function deleteEntry(){
 function buildSteps(){
   if(entry.sheet === "Dollar"){
     steps = ["sheet","amount","desc","dollarType","review"];
-  } else if(entry.sheet === "Siwar"){
-    steps = ["sheet","flow","amount","account","desc","review"];
   } else { // Cash
     steps = ["sheet","flow","amount","account","desc","expType","review"];
   }
@@ -3959,8 +3875,7 @@ function renderStep(){
     body.appendChild(html(`<div class="q">Which account book?</div>`));
     const g = div("choices");
     [["Cash","Daily spending & income","#6FA8DC","💵"],
-     ["Dollar","USDT transfers & profit","#9B8AD4","＄"],
-     ["Siwar","Company account","#E5564E","🏢"]].forEach(([name,sub,clr,ic])=>{
+     ["Dollar","USDT transfers & profit","#9B8AD4","＄"]].forEach(([name,sub,clr,ic])=>{
       const b = document.createElement('button'); b.className="choice";
       b.innerHTML = `<span class="ic" style="background:${clr}22;color:${clr}">${ic}</span>
         <span>${name}<small>${sub}</small></span>`;
@@ -4463,11 +4378,11 @@ document.addEventListener('keydown', function(e){
 lockHero();
 
 /* === SHEET TOTALS === */
-var SHEET_TOTALS = {Cash:0, Dollar:0, Siwar:0, Saraya:0};
+var SHEET_TOTALS = {Cash:0, Dollar:0, Saraya:0};
 function loadSheetTotals(){
   jsonpCall({action:'sheettotals'}, function(res){
     if(res && res.status==='ok'){
-      SHEET_TOTALS = {Cash:res.Cash||0, Dollar:res.Dollar||0, Siwar:res.Siwar||0, Saraya:res.Saraya||0};
+      SHEET_TOTALS = {Cash:res.Cash||0, Dollar:res.Dollar||0, Saraya:res.Saraya||0};
       renderStBanner();
     }
   }, function(){});
@@ -4558,7 +4473,7 @@ function rcSave(close){
     var diff = Number(res.diff) || 0;
     if(close && Math.abs(diff) >= 0.005){
       saveToFirebase({sheet:'Cash', amount:diff, account:a.label, description:'تسوية مراجعة', expenseType:'Lost',
-        dollarType:'', dollarPayer:'', sarayaType:'', sarayaApt:'', paidBy:'', apt:'', photo:''});
+        dollarType:'', dollarPayer:'', sarayaType:'', sarayaApt:'', paidBy:'', photo:''});
     }
     toast('✓ ' + a.label + ' — ' + (Math.abs(diff) < 0.005 ? 'مطابق' : ('فرق ' + rcFmt(diff))) + (res.baseline ? ' (نقطة بداية)' : ''));
     closeRecon();
@@ -4678,9 +4593,8 @@ function sbalShowList(){
       body.innerHTML='<div class="tx-loading" style="color:var(--red)">Could not load.</div>';
       return;
     }
-    // Only Siwar + Saraya. Saraya opens a breakdown (income/opex/owner).
+    // Only Alma-vera (Saraya) — it opens a breakdown (income/opex/owner).
     var sheets=[
-      {name:'Siwar',   v:res.Siwar||0,   action:'tx'},
       {name:'Saraya', v:res.Saraya||0, action:'breakdown'}
     ];
     var h='';
@@ -4892,7 +4806,7 @@ initMode();
   </div>
   <div class="dw-item" onclick="dwGo(openSbal)">
     <div class="dw-ic">💰</div>
-    <div><div>Sheet balances</div><div class="dw-sub">Siwar &amp; Alma-vera</div></div>
+    <div><div>Sheet balances</div><div class="dw-sub">Alma-vera</div></div>
   </div>
   <div class="dw-item" onclick="dwGo(openHistory)">
     <div class="dw-ic">🕘</div>
